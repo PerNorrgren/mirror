@@ -84,9 +84,10 @@ wss.on('connection', (clientWs) => {
   });
 
   deepgramWs.on('message', (data) => {
-    // Forward raw Deepgram message directly to client
     if (clientWs.readyState === WebSocket.OPEN) {
-      clientWs.send(data);
+      // Convert to string if Buffer/binary
+      const msg = typeof data === 'string' ? data : data.toString('utf8');
+      clientWs.send(msg);
     }
   });
 
