@@ -26,6 +26,7 @@
   #mic-btn.thinking { border-color: rgba(255,255,255,0.2); }
   @keyframes mp { 0%,100%{transform:scale(1);} 50%{transform:scale(1.08);} }
   #status-text { font-size: 12px; color: rgba(255,255,255,0.4); letter-spacing: 0.08em; text-transform: uppercase; text-align: center; }
+  #interim-text { position: fixed; bottom: 145px; left: 0; right: 0; text-align: center; font-size: 13px; color: rgba(255,255,255,0.3); font-style: italic; padding: 0 24px; pointer-events: none; }
   #mlabel { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); font-size: 10px; letter-spacing: 0.22em; color: rgba(255,255,255,0.15); font-style: italic; pointer-events: none; }
   #thinking { display: none; background: rgba(0,0,0,0.65); backdrop-filter: blur(6px); padding: 12px 18px; border-radius: 12px; }
   #thinking.on { display: inline-block; }
@@ -64,6 +65,7 @@
   <div id="msgs">
     <div id="thinking" class="msg"><div class="dw"><span></span><span></span><span></span></div></div>
   </div>
+  <div id="interim-text"></div>
   <div id="controls">
     <div id="status-text">starting...</div>
     <button id="mic-btn" onclick="toggleMic()">
@@ -100,6 +102,13 @@ let busy = false;
 let isListening = false;
 let isSpeaking = false;
 let currentAudio = null;
+let mediaStream = null;
+let audioContext = null;
+let processor = null;
+let deepgramWs = null;
+
+const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+const WS_URL = `${wsProtocol}//${window.location.host}/listen`;
 
 async function go() {
   document.getElementById('start').style.display = 'none';
@@ -187,51 +196,79 @@ async function speak(text) {
   });
 }
 
-function toggleMic() {
+async function toggleMic() {
   if (busy || isSpeaking) return;
-  if (isListening) { stopListening(); return; }
-  startListening();
+  if (isListening) {
+    stopListening();
+  } else {
+    await startListening();
+  }
 }
 
-function startListening() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { setStatus('speech not supported'); return; }
+async function startListening() {
+  try {
+    // Get microphone access
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    audioContext = new AudioContext({ sampleRate: 16000 });
+    const source = audioContext.createMediaStreamSource(mediaStream);
 
-  const r = new SR();
-  r.continuous = false;
-  r.interimResults = false;
-  r.lang = 'en-US';
-  window._r = r;
+    // Connect to Deepgram via WebSocket
+    deepgramWs = new WebSocket(WS_URL);
 
-  r.onstart = () => {
-    isListening = true;
-    document.getElementById('mic-btn').className = 'listening';
-    setStatus('listening...');
-  };
+    deepgramWs.onopen = () => {
+      isListening = true;
+      document.getElementById('mic-btn').className = 'listening';
+      setStatus('listening...');
 
-  r.onresult = (e) => {
-    const t = e.results[0][0].transcript.trim();
-    stopListening();
-    if (!t) return;
-    addMsg('user', t);
-    ask(t);
-  };
+      // Stream audio using ScriptProcessor
+      processor = audioContext.createScriptProcessor(4096, 1, 1);
+      source.connect(processor);
+      processor.connect(audioContext.destination);
 
-  r.onerror = (e) => {
-    console.error('mic error:', e.error);
-    stopListening();
-  };
+      processor.onaudioprocess = (e) => {
+        if (deepgramWs.readyState !== WebSocket.OPEN) return;
+        const inputData = e.inputBuffer.getChannelData(0);
+        const pcm16 = new Int16Array(inputData.length);
+        for (let i = 0; i < inputData.length; i++) {
+          pcm16[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32768));
+        }
+        deepgramWs.send(pcm16.buffer);
+      };
+    };
 
-  r.onend = () => { if (isListening) stopListening(); };
+    deepgramWs.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'transcript' && data.text.trim()) {
+        stopListening();
+        addMsg('user', data.text);
+        ask(data.text);
+      }
+    };
 
-  try { r.start(); } catch(e) { stopListening(); }
+    deepgramWs.onerror = (e) => {
+      console.error('WebSocket error:', e);
+      stopListening();
+    };
+
+    deepgramWs.onclose = () => {
+      if (isListening) stopListening();
+    };
+
+  } catch(e) {
+    console.error('mic error:', e);
+    setStatus('tap to speak');
+  }
 }
 
 function stopListening() {
   isListening = false;
-  try { window._r && window._r.stop(); } catch(e) {}
-  window._r = null;
+  if (processor) { processor.disconnect(); processor = null; }
+  if (audioContext) { audioContext.close(); audioContext = null; }
+  if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+  if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) deepgramWs.close();
+  deepgramWs = null;
   document.getElementById('mic-btn').className = '';
+  document.getElementById('interim-text').textContent = '';
   setStatus('tap to speak');
 }
 
