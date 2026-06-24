@@ -215,19 +215,6 @@ async function startListening() {
     // Connect to Deepgram via WebSocket
     deepgramWs = new WebSocket(WS_URL);
 
-    // Auto-stop after 10 seconds
-    const autoStop = setTimeout(() => {
-      if (isListening && lastTranscript) {
-        const t = lastTranscript;
-        lastTranscript = '';
-        stopListening();
-        addMsg('user', t);
-        ask(t);
-      } else if (isListening) {
-        stopListening();
-      }
-    }, 10000);
-
     deepgramWs.onopen = () => {
       isListening = true;
       document.getElementById('mic-btn').className = 'listening';
@@ -249,50 +236,43 @@ async function startListening() {
       };
     };
 
-    let silenceTimer = null;
     let accumulatedTranscript = '';
 
     deepgramWs.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         const txt = data?.channel?.alternatives?.[0]?.transcript?.trim();
-        if (!txt) return;
 
-        // Accumulate transcript
-        if (data.is_final) {
+        // Accumulate final segments as they arrive
+        if (data.is_final && txt) {
           accumulatedTranscript = (accumulatedTranscript + ' ' + txt).trim();
+          document.getElementById('interim-text').textContent = accumulatedTranscript;
+        } else if (!data.is_final && txt) {
+          // Show interim text without accumulating
+          document.getElementById('interim-text').textContent = (accumulatedTranscript + ' ' + txt).trim();
         }
 
-        // Show what we have so far
-        const display = accumulatedTranscript ? accumulatedTranscript + ' ' + (data.is_final ? '' : txt) : txt;
-        document.getElementById('interim-text').textContent = display.trim();
-
-        // On speech_final — complete utterance detected
+        // speech_final = Deepgram detected natural end of speech
+        // No timer — fires when person actually stops talking
         if (data.speech_final && accumulatedTranscript) {
-          clearTimeout(silenceTimer);
           const t = accumulatedTranscript;
           accumulatedTranscript = '';
           document.getElementById('interim-text').textContent = '';
           stopListening();
           addMsg('user', t);
           ask(t);
-          return;
         }
 
-        // Fallback silence timer — 2.5 seconds after last final result
-        if (data.is_final) {
-          clearTimeout(silenceTimer);
-          silenceTimer = setTimeout(() => {
-            if (accumulatedTranscript) {
-              const t = accumulatedTranscript;
-              accumulatedTranscript = '';
-              document.getElementById('interim-text').textContent = '';
-              stopListening();
-              addMsg('user', t);
-              ask(t);
-            }
-          }, 2500);
+        // utterance_end_ms fallback — fires if speech_final doesn't
+        if (data.type === 'UtteranceEnd' && accumulatedTranscript) {
+          const t = accumulatedTranscript;
+          accumulatedTranscript = '';
+          document.getElementById('interim-text').textContent = '';
+          stopListening();
+          addMsg('user', t);
+          ask(t);
         }
+
       } catch(e) { console.error('parse error:', e); }
     };
 
