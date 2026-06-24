@@ -250,27 +250,49 @@ async function startListening() {
     };
 
     let silenceTimer = null;
-    let lastTranscript = '';
+    let accumulatedTranscript = '';
 
     deepgramWs.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log('DG message:', JSON.stringify(data).slice(0, 200));
         const txt = data?.channel?.alternatives?.[0]?.transcript?.trim();
         if (!txt) return;
-        document.getElementById('interim-text').textContent = txt;
-        lastTranscript = txt;
-        clearTimeout(silenceTimer);
-        silenceTimer = setTimeout(() => {
-          if (lastTranscript) {
-            const t = lastTranscript;
-            lastTranscript = '';
-            document.getElementById('interim-text').textContent = '';
-            stopListening();
-            addMsg('user', t);
-            ask(t);
-          }
-        }, 1200);
+
+        // Accumulate transcript
+        if (data.is_final) {
+          accumulatedTranscript = (accumulatedTranscript + ' ' + txt).trim();
+        }
+
+        // Show what we have so far
+        const display = accumulatedTranscript ? accumulatedTranscript + ' ' + (data.is_final ? '' : txt) : txt;
+        document.getElementById('interim-text').textContent = display.trim();
+
+        // On speech_final — complete utterance detected
+        if (data.speech_final && accumulatedTranscript) {
+          clearTimeout(silenceTimer);
+          const t = accumulatedTranscript;
+          accumulatedTranscript = '';
+          document.getElementById('interim-text').textContent = '';
+          stopListening();
+          addMsg('user', t);
+          ask(t);
+          return;
+        }
+
+        // Fallback silence timer — 2.5 seconds after last final result
+        if (data.is_final) {
+          clearTimeout(silenceTimer);
+          silenceTimer = setTimeout(() => {
+            if (accumulatedTranscript) {
+              const t = accumulatedTranscript;
+              accumulatedTranscript = '';
+              document.getElementById('interim-text').textContent = '';
+              stopListening();
+              addMsg('user', t);
+              ask(t);
+            }
+          }, 2500);
+        }
       } catch(e) { console.error('parse error:', e); }
     };
 
