@@ -125,15 +125,13 @@ app.delete('/api/practices/:id', (req, res) => {
 
 // ── Strip markdown ──
 function stripMarkdown(text) {
+  if (!text) return text;
   return text
-    .replace(/#{1,6}s*/g, '')
-    .replace(/**(.*?)**/g, '$1')
-    .replace(/*(.*?)*/g, '$1')
-    .replace(/^[-*]s+/gm, '')
-    .replace(/
-{3,}/g, '
-
-')
+    .replace(/#{1,6} */g, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/^[\-\*] +/gm, '')
+    .replace(/\n\n\n+/g, '\n\n')
     .trim();
 }
 
