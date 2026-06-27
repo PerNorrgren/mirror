@@ -100,6 +100,7 @@ const PORT               = process.env.PORT || 3000;
 app.use(express.json());
 app.use(cookieParser());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/tmp-audio', express.static(path.join(__dirname, 'tmp-audio')));
 
 // ── File upload ──
 const storage = multer.diskStorage({
@@ -425,10 +426,12 @@ const crypto = require('crypto');
 async function textToSpeechSentences(text, ws) {
   const audio    = await textToSpeech(text);
   const fname    = 'tts_' + crypto.randomBytes(8).toString('hex') + '.mp3';
-  const fpath    = path.join(__dirname, 'uploads', fname);
+  const tmpDir   = path.join(__dirname, 'tmp-audio');
+  fs.mkdirSync(tmpDir, { recursive: true });
+  const fpath    = path.join(tmpDir, fname);
   fs.writeFileSync(fpath, audio);
-  // Send URL instead of base64 — browser fetches directly, no WebSocket size limit
-  ws.send(JSON.stringify({ type: 'audio_url', url: '/uploads/' + fname, final: true }));
+  // Send URL — no auth required for tmp-audio
+  ws.send(JSON.stringify({ type: 'audio_url', url: '/tmp-audio/' + fname, final: true }));
   // Clean up after 60 seconds
   setTimeout(() => { try { fs.unlinkSync(fpath); } catch {} }, 60000);
 }
