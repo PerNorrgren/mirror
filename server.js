@@ -11,21 +11,31 @@ const db         = require('./db');
 const auth       = require('./auth');
 const prompts    = require('./prompts');
 
-// ── Email via Resend ──
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const EMAIL_FROM     = process.env.EMAIL_FROM || 'noreply@deepermindfulness.org';
-const APP_URL        = process.env.APP_URL || 'https://mirror-production-018d.up.railway.app';
+// ── Email via MailerLite ──
+const MAILERLITE_API_KEY = process.env.MAILERLITE_API_KEY;
+const EMAIL_FROM         = process.env.EMAIL_FROM || 'per@deepermindfulness.org';
+const APP_URL            = process.env.APP_URL || 'https://mirror-production-018d.up.railway.app';
 
 async function sendEmail(to, subject, html) {
-  if (!RESEND_API_KEY) { console.log('RESEND_API_KEY not set — skipping email to', to); return; }
+  if (!MAILERLITE_API_KEY) { console.log('MAILERLITE_API_KEY not set — skipping email to', to); return; }
   try {
-    const res = await fetch('https://api.resend.com/emails', {
+    const res = await fetch('https://connect.mailerlite.com/api/emails', {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: EMAIL_FROM, to, subject, html })
+      headers: {
+        'Authorization': `Bearer ${MAILERLITE_API_KEY}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        from: EMAIL_FROM,
+        from_name: 'Deeper Mindfulness',
+        to: [{ email: to }],
+        subject,
+        html
+      })
     });
     const data = await res.json();
-    if (!res.ok) console.error('Resend error:', data);
+    if (!res.ok) console.error('MailerLite error:', JSON.stringify(data));
     else console.log('Email sent to', to);
   } catch (e) { console.error('Email error:', e.message); }
 }
