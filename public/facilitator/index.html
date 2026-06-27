@@ -274,6 +274,16 @@
         <button class="fog-btn active" data-fog="12">Clinical</button>
         <button class="fog-btn" data-fog="18">Technical</button>
       </div>
+      <div style="margin-top:14px;display:flex;flex-direction:column;gap:8px">
+        <label style="font-size:11px;color:rgba(255,255,255,0.35);cursor:pointer;display:flex;align-items:center;gap:8px">
+          <input type="checkbox" id="voiceOn" style="accent-color:#b4e6c8">
+          Voice response
+        </label>
+        <label style="font-size:11px;color:rgba(255,255,255,0.35);cursor:pointer;display:flex;align-items:center;gap:8px">
+          <input type="checkbox" id="detailedOn" style="accent-color:#b4e6c8">
+          Detailed (default: short)
+        </label>
+      </div>
     </div>
   </div>
 
@@ -443,7 +453,9 @@
         addMessage('bot', msg.text);
       }
       if (msg.type === 'audio') {
-        await playAudio(msg.data);
+        if (document.getElementById('voiceOn')?.checked) {
+          await playAudio(msg.data);
+        }
         document.getElementById('waveSmall').classList.remove('on');
       }
       if (msg.type === 'explanation') {
@@ -568,7 +580,8 @@
     if (!text || !ws) return;
     input.value = '';
     addMessage('user', text);
-    ws.send(JSON.stringify({ type: 'text_input', text }));
+    const detailed = document.getElementById('detailedOn')?.checked || false;
+    ws.send(JSON.stringify({ type: 'text_input', text, detailed }));
   }
 
   document.getElementById('sendBtn').addEventListener('click', sendText);
