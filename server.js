@@ -17,6 +17,7 @@ const ANTHROPIC_API_KEY  = process.env.ANTHROPIC_API_KEY;
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 const VOICE_ID           = process.env.VOICE_ID;
 const DEEPGRAM_API_KEY   = process.env.DEEPGRAM_API_KEY;
+const VOICE_SPEED        = parseFloat(process.env.VOICE_SPEED || '0.82');
 const PORT               = process.env.PORT || 3000;
 
 // ── Static & middleware ──
@@ -152,6 +153,7 @@ async function textToSpeech(text) {
         text,
         model_id: 'eleven_turbo_v2',
         voice_settings: { stability: 0.75, similarity_boost: 0.85, style: 0.0, use_speaker_boost: true },
+        speed: VOICE_SPEED,
       }),
     }
   );
