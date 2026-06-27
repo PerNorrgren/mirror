@@ -505,8 +505,8 @@ wss.on('connection', (ws, req) => {
 // CONTENT MANAGEMENT API
 // ════════════════════════════════════════════
 
-// ── Content page route ──
-app.get('/admin/content', auth.requireAuth(['admin']), (req, res) =>
+// Content pages
+app.get('/admin/content',  auth.requireAuth(['admin']), (req, res) =>
   res.sendFile(path.join(__dirname, 'public', 'admin', 'content.html')));
 app.get('/admin/content/', auth.requireAuth(['admin']), (req, res) =>
   res.sendFile(path.join(__dirname, 'public', 'admin', 'content.html')));
@@ -515,141 +515,152 @@ app.get('/admin/content/', auth.requireAuth(['admin']), (req, res) =>
 app.get('/api/content/categories', auth.requireAuthApi(['admin','facilitator','client']), (req, res) => {
   res.json(db.getAllCategories());
 });
-
 app.post('/api/content/categories', auth.requireAuthApi(['admin']), (req, res) => {
   const { name, parentId } = req.body;
   if (!name) return res.status(400).json({ error: 'Name required.' });
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + Date.now();
-  const id   = uuidv4();
-  db.createCategory(id, name.trim(), slug, parentId || null, 0);
-  res.json({ id, name });
+  db.createCategory(uuidv4(), name.trim(), slug, parentId || null, 0);
+  res.json({ ok: true });
 });
-
+app.patch('/api/content/categories/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: 'Name required.' });
+  db.renameCategory(req.params.id, name.trim());
+  res.json({ ok: true });
+});
 app.delete('/api/content/categories/:id', auth.requireAuthApi(['admin']), (req, res) => {
   db.deleteCategory(req.params.id);
   res.json({ ok: true });
 });
 
+// ── Library files ──
+app.get('/api/content/library', auth.requireAuthApi(['admin','facilitator']), (req, res) => {
+  const { categoryId, subcategoryId, visibility, search } = req.query;
+  res.json(db.getLibraryFiles({ categoryId, subcategoryId, visibility, search }));
+});
+
+app.post('/api/content/library', auth.requireAuthApi(['admin']), upload.single('file'), (req, res) => {
+  const { title, categoryId, subcategoryId, visibility } = req.body;
+  if (!title || !categoryId || !req.file) return res.status(400).json({ error: 'Missing required fields.' });
+  const id = uuidv4();
+  db.addLibraryFile(id, title.trim(), req.body.description || '', req.file.filename,
+    req.file.originalname, req.file.mimetype, req.file.size,
+    categoryId, subcategoryId || null, visibility || 'client');
+  res.json({ id });
+});
+
+app.patch('/api/content/library/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  db.updateLibraryFile(req.params.id, req.body);
+  res.json({ ok: true });
+});
+
+app.get('/api/content/library/:id/usage', auth.requireAuthApi(['admin']), (req, res) => {
+  res.json(db.getFileUsage(req.params.id));
+});
+
+app.delete('/api/content/library/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  const file = db.getLibraryFile(req.params.id);
+  if (file) {
+    const fp = path.join(__dirname, 'uploads', file.filename);
+    try { require('fs').unlinkSync(fp); } catch {}
+  }
+  db.deleteLibraryFile(req.params.id);
+  res.json({ ok: true });
+});
+
 // ── Courses ──
 app.get('/api/content/courses', auth.requireAuthApi(['admin','facilitator']), (req, res) => {
-  res.json(db.getAllCourses());
+  res.json(db.getAllCourses(req.query));
 });
-
-app.get('/api/content/courses/:id', auth.requireAuthApi(['admin','facilitator']), (req, res) => {
-  const course = db.getCourse(req.params.id);
-  if (!course) return res.status(404).json({ error: 'Not found' });
-  res.json(course);
-});
-
-app.post('/api/content/courses', auth.requireAuthApi(['admin']), async (req, res) => {
-  const { title, description, categoryId, subcategoryId, guestVisible, lessons } = req.body;
+app.post('/api/content/courses', auth.requireAuthApi(['admin']), (req, res) => {
+  const { title, description, categoryId, subcategoryId, lessons } = req.body;
   if (!title || !categoryId) return res.status(400).json({ error: 'Title and category required.' });
   const courseId = uuidv4();
-  db.createCourse(courseId, title, description, categoryId, subcategoryId, guestVisible);
-
+  db.createCourse(courseId, title, description, categoryId, subcategoryId, false);
   if (lessons && lessons.length) {
     lessons.forEach(l => {
-      db.createLesson(uuidv4(), courseId, l.number, l.title, l.description || '', l.guestAccessible || false);
+      db.createLesson(uuidv4(), courseId, l.number, l.title, l.description || '', l.visibility || 'client');
     });
   }
   res.json({ id: courseId });
 });
-
+app.get('/api/content/courses/:id', auth.requireAuthApi(['admin','facilitator']), (req, res) => {
+  const c = db.getCourse(req.params.id);
+  if (!c) return res.status(404).json({ error: 'Not found' });
+  res.json(c);
+});
 app.delete('/api/content/courses/:id', auth.requireAuthApi(['admin']), (req, res) => {
   db.deleteCourse(req.params.id);
   res.json({ ok: true });
 });
 
 // ── Lessons ──
-app.get('/api/content/courses/:courseId/lessons', auth.requireAuthApi(['admin','facilitator']), (req, res) => {
-  res.json(db.getLessonsForCourse(req.params.courseId));
+app.get('/api/content/courses/:id/lessons', auth.requireAuthApi(['admin','facilitator']), (req, res) => {
+  res.json(db.getLessonsForCourse(req.params.id));
 });
-
-app.post('/api/content/lessons', auth.requireAuthApi(['admin']), upload.array('files', 20), async (req, res) => {
-  const { courseId, lessonNumber, title, description, guestAccessible } = req.body;
-  if (!courseId || !lessonNumber || !title) return res.status(400).json({ error: 'Missing required fields.' });
-
+app.post('/api/content/lessons', auth.requireAuthApi(['admin']), (req, res) => {
+  const { courseId, lessonNumber, title, visibility, fileIds } = req.body;
+  if (!courseId || !lessonNumber || !title) return res.status(400).json({ error: 'Missing fields.' });
   const lessonId = uuidv4();
-  db.createLesson(lessonId, courseId, parseInt(lessonNumber), title, description || '', guestAccessible === 'true');
-
-  if (req.files && req.files.length) {
-    req.files.forEach(file => {
-      db.addLessonFile(uuidv4(), lessonId, file.filename, file.originalname, file.mimetype, file.size);
-    });
+  db.createLesson(lessonId, courseId, parseInt(lessonNumber), title, '', visibility || 'client');
+  if (fileIds && fileIds.length) {
+    fileIds.forEach((fid, i) => db.addLessonFileRef(uuidv4(), lessonId, fid, i));
   }
   res.json({ id: lessonId });
 });
-
+app.get('/api/content/lessons/:id/files', auth.requireAuthApi(['admin','facilitator']), (req, res) => {
+  res.json(db.getFilesForLesson(req.params.id));
+});
 app.delete('/api/content/lessons/:id', auth.requireAuthApi(['admin']), (req, res) => {
   db.deleteLesson(req.params.id);
   res.json({ ok: true });
 });
 
+// ── Lesson file refs ──
+app.post('/api/content/lesson-file-refs', auth.requireAuthApi(['admin']), (req, res) => {
+  const { lessonId, fileId } = req.body;
+  if (!lessonId || !fileId) return res.status(400).json({ error: 'Missing fields.' });
+  const existing = db.getFilesForLesson(lessonId);
+  db.addLessonFileRef(uuidv4(), lessonId, fileId, existing.length);
+  res.json({ ok: true });
+});
+app.delete('/api/content/lesson-file-refs/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  db.removeLessonFileRef(req.params.id);
+  res.json({ ok: true });
+});
+
 // ── Playlists ──
 app.get('/api/content/playlists', auth.requireAuthApi(['admin','facilitator','client']), (req, res) => {
-  res.json(db.getAllPlaylists());
+  res.json(db.getAllPlaylists(req.query));
 });
-
 app.post('/api/content/playlists', auth.requireAuthApi(['admin']), (req, res) => {
-  const { title, description, categoryId, subcategoryId, guestVisible } = req.body;
+  const { title, description, categoryId, subcategoryId } = req.body;
   if (!title || !categoryId) return res.status(400).json({ error: 'Title and category required.' });
   const id = uuidv4();
-  db.createPlaylist(id, title, description, categoryId, subcategoryId, guestVisible);
+  db.createPlaylist(id, title, description, categoryId, subcategoryId, false);
   res.json({ id });
 });
-
 app.get('/api/content/playlists/:id/tracks', auth.requireAuthApi(['admin','facilitator','client']), (req, res) => {
   res.json(db.getTracksForPlaylist(req.params.id));
 });
-
 app.delete('/api/content/playlists/:id', auth.requireAuthApi(['admin']), (req, res) => {
   db.deletePlaylist(req.params.id);
   res.json({ ok: true });
 });
 
-// ── Tracks ──
-app.post('/api/content/tracks', auth.requireAuthApi(['admin']), upload.single('file'), (req, res) => {
-  const { playlistId, title, guestAccessible } = req.body;
-  if (!playlistId || !title || !req.file) return res.status(400).json({ error: 'Missing required fields.' });
-  const tracks    = db.getTracksForPlaylist(playlistId);
-  const sortOrder = tracks.length;
-  const id        = uuidv4();
-  db.addTrack(id, playlistId, title, req.file.filename, req.file.originalname,
-    req.file.mimetype, req.file.size, guestAccessible === 'true', sortOrder);
-  res.json({ id });
+// ── Playlist track refs ──
+app.post('/api/content/playlist-track-refs', auth.requireAuthApi(['admin']), (req, res) => {
+  const { playlistId, fileId, title, sortOrder } = req.body;
+  if (!playlistId || !fileId) return res.status(400).json({ error: 'Missing fields.' });
+  db.addPlaylistTrackRef(uuidv4(), playlistId, fileId, title || '', sortOrder || 0);
+  res.json({ ok: true });
 });
-
-app.patch('/api/content/tracks/:id', auth.requireAuthApi(['admin']), (req, res) => {
-  db.updateTrack(req.params.id, req.body);
+app.delete('/api/content/playlist-track-refs/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  db.removePlaylistTrackRef(req.params.id);
   res.json({ ok: true });
 });
 
-app.delete('/api/content/tracks/:id', auth.requireAuthApi(['admin']), (req, res) => {
-  db.deleteTrack(req.params.id);
-  res.json({ ok: true });
-});
-
-// ── Standalone files ──
-app.get('/api/content/files', auth.requireAuthApi(['admin','facilitator']), (req, res) => {
-  const { categoryId, subcategoryId } = req.query;
-  res.json(db.getAllContentFiles(categoryId, subcategoryId));
-});
-
-app.post('/api/content/files', auth.requireAuthApi(['admin']), upload.single('file'), (req, res) => {
-  const { title, description, categoryId, subcategoryId, guestAccessible } = req.body;
-  if (!title || !categoryId || !req.file) return res.status(400).json({ error: 'Missing required fields.' });
-  const id = uuidv4();
-  db.addContentFile(id, title, description, req.file.filename, req.file.originalname,
-    req.file.mimetype, req.file.size, categoryId, subcategoryId || null, guestAccessible === 'true');
-  res.json({ id });
-});
-
-app.delete('/api/content/files/:id', auth.requireAuthApi(['admin']), (req, res) => {
-  db.deleteContentFile(req.params.id);
-  res.json({ ok: true });
-});
-
-// ── Serve uploaded files (auth check) ──
+// ── Serve uploaded files (auth required) ──
 app.get('/uploads/:filename', (req, res) => {
   const token = req.cookies?.[auth.COOKIE_NAME];
   const user  = token ? auth.verifyToken(token) : null;
