@@ -304,8 +304,6 @@
 
     let isListening=false, mediaStream=null, mediaRecorder=null;
     let micPermissionGranted = false;
-    let isSpeaking = false;
-    let currentAudio = null;
     let pendingText = null;
 
     function setState(s) {
@@ -317,99 +315,35 @@
       else if(s==='speaking'){ waveEl.classList.add('on'); }
     }
 
-    // ── Streaming audio queue ──
-    let audioCtx    = null;
-    let audioQueue  = [];     // decoded AudioBuffers waiting to play
-    let isPlaying   = false;  // queue processor running
-    let streamDone  = false;  // server signalled audio_end
-    let nextStartTime = 0;    // schedule chunks back-to-back
-    let streamResolve = null; // resolve the playStream promise
+    // ── Audio — simple HTTP fetch, native Audio element ──
+    // Mirror-proven: no AudioContext, no base64, just fetch and play
+    let currentAudio = null;
 
-    function ensureAudioCtx() {
-      if (!audioCtx || audioCtx.state === 'closed') {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        nextStartTime = 0;
-      }
-      if (audioCtx.state === 'suspended') audioCtx.resume();
-      return audioCtx;
+    function playAudioToken(token) {
+      return new Promise((res) => {
+        if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+        const audio = new Audio('/api/audio/' + token);
+        currentAudio = audio;
+        isSpeaking   = true;
+        audio.onended = () => { currentAudio=null; isSpeaking=false; res(); };
+        audio.onerror = (e) => { console.error('Audio error',e); currentAudio=null; isSpeaking=false; res(); };
+        audio.play().catch(e => { console.error('Play failed',e); isSpeaking=false; res(); });
+      });
     }
 
-    function stopAllAudio() {
-      audioQueue = [];
-      streamDone = false;
-      isPlaying  = false;
-      nextStartTime = 0;
-      if (audioCtx) {
-        try { audioCtx.close(); } catch {}
-        audioCtx = null;
-      }
-    }
-
-    // Decode a base64 chunk and add to queue
-    async function enqueueChunk(b64) {
-      try {
-        const ctx    = ensureAudioCtx();
-        const binary = atob(b64);
-        const buf    = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) buf[i] = binary.charCodeAt(i);
-        const decoded = await ctx.decodeAudioData(buf.buffer.slice(0));
-        audioQueue.push(decoded);
-        if (!isPlaying) processQueue();
-      } catch(e) {
-        // MP3 chunks may be partial — skip decode errors silently
-      }
-    }
-
-    // Play queued buffers back to back using Web Audio scheduling
-    function processQueue() {
-      if (audioQueue.length === 0) {
-        if (streamDone) {
-          // All chunks played and stream finished
-          isPlaying = false;
-          isSpeaking = false;
-          if (streamResolve) { streamResolve(); streamResolve = null; }
-        } else {
-          // More chunks coming — wait
-          isPlaying = false;
-          setTimeout(processQueue, 50);
-        }
-        return;
-      }
-      isPlaying = true;
-      const ctx    = ensureAudioCtx();
-      const buffer = audioQueue.shift();
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-      source.connect(ctx.destination);
-      // Schedule back-to-back — no gaps
-      const startAt = Math.max(ctx.currentTime, nextStartTime);
-      source.start(startAt);
-      nextStartTime = startAt + buffer.duration;
-      source.onended = () => processQueue();
-    }
-
-    // Returns promise that resolves when stream is fully played
-    function playStream() {
-      return new Promise(res => { streamResolve = res; });
-    }
-
-    // Legacy single-chunk playback (kept for practices)
     function playAudio(b64) {
-      return new Promise(async (res) => {
-        try {
-          stopAllAudio();
-          const ctx    = ensureAudioCtx();
-          const binary = atob(b64);
-          const buf    = new Uint8Array(binary.length);
-          for (let i = 0; i < binary.length; i++) buf[i] = binary.charCodeAt(i);
-          const decoded = await ctx.decodeAudioData(buf.buffer);
-          const source  = ctx.createBufferSource();
-          source.buffer = decoded;
-          source.connect(ctx.destination);
-          source.onended = () => { isSpeaking = false; res(); };
-          isSpeaking = true;
-          source.start(0);
-        } catch(e) { isSpeaking = false; res(); }
+      return new Promise((res) => {
+        if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+        const bytes = atob(b64);
+        const arr   = new Uint8Array(bytes.length);
+        for (let i=0;i<bytes.length;i++) arr[i]=bytes.charCodeAt(i);
+        const url   = URL.createObjectURL(new Blob([arr],{type:'audio/mpeg'}));
+        const audio = new Audio(url);
+        currentAudio = audio;
+        isSpeaking   = true;
+        audio.onended = () => { URL.revokeObjectURL(url); currentAudio=null; isSpeaking=false; res(); };
+        audio.onerror = () => { URL.revokeObjectURL(url); currentAudio=null; isSpeaking=false; res(); };
+        audio.play().catch(() => { isSpeaking=false; res(); });
       });
     }
 
@@ -418,43 +352,22 @@
       if(msg.type==='greeting'){
         pendingText = msg.text; // Hold until audio ready
       }
-      if(msg.type==='audio_start'){
-        // Stream starting — stop listening, show text, prepare queue
+      if(msg.type==='audio_token'){
         if (isListening) stopListening();
         if (pendingText) {
           transcriptEl.textContent = pendingText;
           transcriptEl.className = 'transcript-text';
           pendingText = null;
         }
-        stopAllAudio();
-        streamDone = false;
         setState('speaking');
-        isSpeaking = true;
-        // Start the stream promise — resolves when all chunks played
-        const streamPromise = playStream();
-        streamPromise.then(() => {
-          setState('idle');
-          if (micPermissionGranted && !isListening) setTimeout(()=>startListening(), 400);
-          else {
-            document.getElementById('status').textContent = 'tap mic to respond';
-            document.getElementById('status').classList.add('on');
-          }
-        });
-      }
-      if(msg.type==='audio_chunk'){
-        // Decode and enqueue chunk — plays as soon as decoded
-        enqueueChunk(msg.data);
-      }
-      if(msg.type==='audio_end'){
-        // All chunks sent — queue will resolve when last chunk plays
-        streamDone = true;
-        if (!isPlaying && audioQueue.length === 0) {
-          // Already finished
-          isSpeaking = false;
-          if (streamResolve) { streamResolve(); streamResolve = null; }
+        await playAudioToken(msg.token);
+        setState('idle');
+        if (micPermissionGranted && !isListening) setTimeout(()=>startListening(), 400);
+        else {
+          statusEl.textContent = 'tap mic to respond';
+          statusEl.classList.add('on');
         }
       }
-      // Legacy single audio message (fallback)
       if(msg.type==='audio' && msg.data){
         if (isListening) stopListening();
         if (pendingText) {
