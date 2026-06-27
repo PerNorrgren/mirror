@@ -408,7 +408,7 @@ async function textToSpeech(text) {
       headers: { 'xi-api-key': ELEVENLABS_API_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         text,
-        model_id: 'eleven_turbo_v2',
+        model_id: 'eleven_multilingual_v2',
         voice_settings: { stability: 0.78, similarity_boost: 0.85, style: 0.0, use_speaker_boost: true },
         speed: VOICE_SPEED,
       }),
