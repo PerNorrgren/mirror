@@ -338,7 +338,9 @@
 
     ws.onmessage = async (e) => {
       const msg = JSON.parse(e.data);
-      if(msg.type==='greeting'){ transcriptEl.textContent=msg.text; transcriptEl.className='transcript-text'; }
+      if(msg.type==='greeting'){
+        pendingText = msg.text; // Hold until audio ready
+      }
       if(msg.type==='audio'){
         // Stop listening if active before playing response
         if (isListening) stopListening();
