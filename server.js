@@ -183,7 +183,16 @@ app.post('/api/change-password', auth.requireAuthApi(), async (req, res) => {
 
 // ── Admin API ──
 app.get('/api/admin/facilitators', auth.requireAuthApi(['admin']), (req, res) => {
-  res.json(db.getAllFacilitators());
+  const includeArchived = req.query.archived === '1';
+  res.json(db.getAllFacilitators(includeArchived));
+});
+
+app.patch('/api/admin/facilitators/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  const { name, email, action } = req.body;
+  if (action === 'archive')   { db.archiveFacilitator(req.params.id); return res.json({ ok: true }); }
+  if (action === 'unarchive') { db.unarchiveFacilitator(req.params.id); return res.json({ ok: true }); }
+  if (name && email) { db.updateFacilitatorDetails(req.params.id, name.trim(), email.trim()); return res.json({ ok: true }); }
+  res.status(400).json({ error: 'Invalid request.' });
 });
 
 app.post('/api/admin/facilitators', auth.requireAuthApi(['admin']), async (req, res) => {

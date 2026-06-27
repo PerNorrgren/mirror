@@ -254,11 +254,27 @@ function createFacilitator(id, name, email, passwordHash, role = 'facilitator') 
 }
 function getFacilitatorByEmail(email) { return queryOne('SELECT * FROM facilitators WHERE email=?', [email.toLowerCase()]); }
 function getFacilitatorById(id) { return queryOne('SELECT * FROM facilitators WHERE id=?', [id]); }
-function getAllFacilitators() { return queryAll('SELECT id,name,email,role,created_at FROM facilitators WHERE role!=? ORDER BY name ASC', ['admin']); }
+
 function updateFacilitatorPassword(id, hash) {
   getDbSync().run('UPDATE facilitators SET password_hash=?,must_change_password=0 WHERE id=?', [hash, id]); save();
 }
 function deleteFacilitator(id) { getDbSync().run('DELETE FROM facilitators WHERE id=?', [id]); save(); }
+
+function archiveFacilitator(id) {
+  getDbSync().run("UPDATE facilitators SET role='facilitator_archived' WHERE id=?", [id]); save();
+}
+function unarchiveFacilitator(id) {
+  getDbSync().run("UPDATE facilitators SET role='facilitator' WHERE id=?", [id]); save();
+}
+function updateFacilitatorDetails(id, name, email) {
+  getDbSync().run('UPDATE facilitators SET name=?,email=? WHERE id=?', [name, email.toLowerCase(), id]); save();
+}
+function getAllFacilitators(includeArchived=false) {
+  if (includeArchived) {
+    return queryAll("SELECT id,name,email,role,must_change_password,created_at FROM facilitators WHERE role!='admin' ORDER BY name ASC");
+  }
+  return queryAll("SELECT id,name,email,role,must_change_password,created_at FROM facilitators WHERE role='facilitator' ORDER BY name ASC");
+}
 
 // ── Categories ──
 function getAllCategories() { return queryAll('SELECT * FROM categories ORDER BY sort_order ASC, name ASC'); }
@@ -508,7 +524,8 @@ module.exports = {
   getDb, save,
   // Facilitators
   createFacilitator, getFacilitatorByEmail, getFacilitatorById,
-  getAllFacilitators, updateFacilitatorPassword, deleteFacilitator,
+  getAllFacilitators, updateFacilitatorPassword, updateFacilitatorDetails,
+  archiveFacilitator, unarchiveFacilitator, deleteFacilitator,
   // Categories
   getAllCategories, getTopCategories, getSubcategories,
   createCategory, renameCategory, deleteCategory,
