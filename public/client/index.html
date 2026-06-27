@@ -344,7 +344,7 @@
           activeSource = source;
           isSpeaking = true;
           source.onended = () => { activeSource = null; isSpeaking = false; res(); };
-          source.start(0);
+          source.start(ctx.currentTime);
         } catch (e) {
           console.error('Audio error', e);
           isSpeaking = false;
@@ -369,7 +369,7 @@
           activeSource = source;
           isSpeaking = true;
           source.onended = () => { activeSource = null; isSpeaking = false; res(); };
-          source.start(0);
+          source.start(ctx.currentTime);
         } catch (e) {
           console.error('Audio error', e);
           isSpeaking = false;
