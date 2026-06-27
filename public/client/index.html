@@ -90,7 +90,7 @@
     @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(180,230,200,0.4)} 70%{box-shadow:0 0 0 16px rgba(180,230,200,0)} 100%{box-shadow:0 0 0 0 rgba(180,230,200,0)} }
     .mic-btn svg { width:26px; height:26px; fill:rgba(255,255,255,0.65); transition:fill 0.25s; }
     .mic-btn.active svg { fill:rgba(180,230,200,0.9); }
-    .mic-hint { font-size:10px; letter-spacing:0.12em; color:rgba(255,255,255,0.22); text-transform:uppercase; }
+    
     .status { font-size:11px; letter-spacing:0.1em; color:rgba(255,255,255,0.25); text-transform:uppercase; height:14px; }
     .status.on { color:rgba(180,230,200,0.65); }
 
@@ -170,7 +170,7 @@
           <button class="mic-btn" id="micBtn">
             <svg viewBox="0 0 24 24"><path d="M12 1a4 4 0 0 1 4 4v7a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4zm0 2a2 2 0 0 0-2 2v7a2 2 0 0 0 4 0V5a2 2 0 0 0-2-2zm-7 9a1 1 0 0 1 1 1 6 6 0 0 0 12 0 1 1 0 0 1 2 0 8 8 0 0 1-7 7.938V23h3a1 1 0 0 1 0 2H8a1 1 0 0 1 0-2h3v-2.062A8 8 0 0 1 4 13a1 1 0 0 1 1-1z"/></svg>
           </button>
-          <span class="mic-hint" id="micHint">listening automatically</span>
+          
         </div>
         <div class="status" id="status"></div>
       </div>
