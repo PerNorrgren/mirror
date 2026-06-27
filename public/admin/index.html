@@ -156,9 +156,29 @@
       <div><label>Name</label><input type="text" id="editFacName"/></div>
       <div><label>Email</label><input type="email" id="editFacEmail"/></div>
       <div class="modal-err" id="editFacErr"></div>
+      <div style="border-top:1px solid rgba(255,255,255,0.07);padding-top:14px;margin-top:4px">
+        <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:rgba(255,255,255,0.25);margin-bottom:10px">Password</div>
+        <button class="btn warn" onclick="resetFacPassword()" style="width:100%;justify-content:center">Reset password &amp; send email</button>
+        <div style="font-size:11px;color:rgba(255,255,255,0.2);margin-top:8px;line-height:1.5">Generates a new temporary password and emails it to the facilitator. They will be prompted to change it on next login.</div>
+      </div>
       <div class="modal-btns">
         <button class="modal-cancel" onclick="closeModal('editFacModal')">Cancel</button>
-        <button class="modal-ok" onclick="saveEditFac()">Save</button>
+        <button class="modal-ok" onclick="saveEditFac()">Save details</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reset Password Confirm Modal -->
+  <div class="modal-overlay" id="resetPassModal">
+    <div class="modal">
+      <h3>Password reset</h3>
+      <div class="temp-pass-box">
+        <div class="temp-pass-label">New temporary password</div>
+        <div class="temp-pass-value" id="resetPassValue"></div>
+        <div class="temp-pass-note">An email has been sent to the facilitator. Keep this as backup in case the email doesn't arrive.</div>
+      </div>
+      <div class="modal-btns">
+        <button class="modal-ok" onclick="closeModal('resetPassModal');loadFacilitators()">Done</button>
       </div>
     </div>
   </div>
@@ -251,6 +271,19 @@
     document.getElementById('editFacName').focus();
   }
 
+  async function resetFacPassword() {
+    const id = document.getElementById('editFacId').value;
+    const res  = await fetch(`/api/admin/facilitators/${id}`, {
+      method: 'PATCH', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ action: 'reset_password' })
+    });
+    const data = await res.json();
+    if (data.error) { document.getElementById('editFacErr').textContent = data.error; return; }
+    closeModal('editFacModal');
+    document.getElementById('resetPassValue').textContent = data.tempPassword;
+    openModal('resetPassModal');
+  }
+
   async function saveEditFac() {
     const id    = document.getElementById('editFacId').value;
     const name  = document.getElementById('editFacName').value.trim();
@@ -290,27 +323,32 @@
 
   // ── Clients ──
   async function loadClients() {
-    const archived = document.getElementById('showArchivedClients').checked ? 1 : 0;
-    const res  = await fetch(`/api/admin/clients?archived=${archived}`);
-    const list = await res.json();
-    const el   = document.getElementById('clientTable');
-
-    if (!list.length) { el.innerHTML = '<div class="empty">No clients yet.</div>'; return; }
-
-    el.innerHTML = list.map(c => `
-      <div class="table-row ${c.archived ? 'archived' : ''}">
-        <div class="col-name">${c.name}</div>
-        <div class="col-email">${c.email || '<span style="color:rgba(255,255,255,0.2)">No login</span>'}</div>
-        <div class="col-status">
-          <span class="status-badge ${c.archived ? 'status-archived' : 'status-active'}">
-            ${c.archived ? 'Archived' : 'Active'}
-          </span>
+    const el = document.getElementById('clientTable');
+    try {
+      const archived = document.getElementById('showArchivedClients').checked ? 1 : 0;
+      const res  = await fetch(`/api/admin/clients?archived=${archived}`);
+      if (!res.ok) { el.innerHTML = '<div class="empty">Error loading clients.</div>'; return; }
+      const list = await res.json();
+      if (!Array.isArray(list) || !list.length) {
+        el.innerHTML = '<div class="empty">No clients yet.</div>'; return;
+      }
+      el.innerHTML = list.map(c => `
+        <div class="table-row ${c.archived ? 'archived' : ''}">
+          <div class="col-name">${c.name}</div>
+          <div class="col-email">${c.email || '<span style="color:rgba(255,255,255,0.2)">No login</span>'}</div>
+          <div class="col-status">
+            <span class="status-badge ${c.archived ? 'status-archived' : 'status-active'}">
+              ${c.archived ? 'Archived' : 'Active'}
+            </span>
+          </div>
+          <div class="col-actions">
+            <span style="font-size:12px;color:rgba(255,255,255,0.3)">${c.facilitator_name || 'Unassigned'}</span>
+          </div>
         </div>
-        <div class="col-actions">
-          <span style="font-size:12px;color:rgba(255,255,255,0.3)">${c.facilitator_name || 'Unassigned'}</span>
-        </div>
-      </div>
-    `).join('');
+      `).join('');
+    } catch(e) {
+      el.innerHTML = '<div class="empty">Error: ' + e.message + '</div>';
+    }
   }
 
   // Keyboard shortcuts
