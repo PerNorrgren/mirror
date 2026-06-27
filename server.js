@@ -191,14 +191,16 @@ wss.on('connection', (ws, req) => {
   (async () => {
     await dbOps.getDb();
 
-    if (botType === 'client' && clientId) {
-      const client   = dbOps.getClient(clientId);
-      const sessions = dbOps.getSessionsForClient(clientId);
-      const arc      = client?.arc || '';
-
+    if (botType === 'client') {
       systemPrompt = prompts.CLIENT_SYSTEM_PROMPT;
-      if (arc || sessions.length > 0) {
-        systemPrompt += prompts.CLIENT_ARC_PREFIX(arc, sessions.length);
+
+      if (clientId) {
+        const client   = dbOps.getClient(clientId);
+        const sessions = dbOps.getSessionsForClient(clientId);
+        const arc      = client?.arc || '';
+        if (arc || sessions.length > 0) {
+          systemPrompt += prompts.CLIENT_ARC_PREFIX(arc, sessions.length);
+        }
       }
 
       const greeting = await callClaude(systemPrompt, [
