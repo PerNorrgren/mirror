@@ -400,39 +400,17 @@ async function callClaude(systemPrompt, messages, maxTokens = 400) {
 }
 
 // ── ElevenLabs TTS ──
-// ── ElevenLabs TTS — Mirror architecture ──
-// Server fetches full audio, sends token over WebSocket
-// Client fetches audio via HTTP /api/audio/:token — proven approach
-const audioStore = new Map(); // token -> audio buffer, expires in 60s
+// ── ElevenLabs TTS — Mare Bot architecture ──
+// Server sends text to client over WebSocket.
+// Client POSTs text to /api/speak — server pipes ElevenLabs response directly back.
+// Proven working in Mare Bot. No buffering, no token, no store.
 
-async function textToSpeech(text) {
-  const response = await fetch(
-    `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
-    {
-      method: 'POST',
-      headers: { 'xi-api-key': ELEVENLABS_API_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text,
-        model_id: 'eleven_turbo_v2',
-        voice_settings: { stability: 0.85, similarity_boost: 0.85, style: 0.0, use_speaker_boost: true },
-        speed: VOICE_SPEED,
-      }),
-    }
-  );
-  if (!response.ok) throw new Error(`ElevenLabs ${response.status}`);
-  const chunks = [];
-  for await (const chunk of response.body) chunks.push(chunk);
-  return Buffer.concat(chunks);
+function sendSpeakText(text, ws) {
+  ws.send(JSON.stringify({ type: 'speak_text', text, final: true }));
 }
 
-async function textToSpeechSentences(text, ws) {
-  const audio = await textToSpeech(text);
-  // Store with random token, send token to client
-  const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
-  audioStore.set(token, audio);
-  setTimeout(() => audioStore.delete(token), 60000);
-  ws.send(JSON.stringify({ type: 'audio_token', token, final: true }));
-}
+// Alias so all call sites work unchanged
+const textToSpeechSentences = (text, ws) => { sendSpeakText(text, ws); return Promise.resolve(); };
 
 // ── Deepgram STT ──
 function openDeepgram(onTranscript) {
@@ -667,14 +645,37 @@ wss.on('connection', (ws, req) => {
 // CONTENT MANAGEMENT API
 // ════════════════════════════════════════════
 
-// ── Audio serving — Mirror approach ──
-// Client fetches audio by token via HTTP — no WebSocket binary issues
-app.get('/api/audio/:token', (req, res) => {
-  const audio = audioStore.get(req.params.token);
-  if (!audio) return res.status(404).send('Not found');
-  res.set('Content-Type', 'audio/mpeg');
-  res.set('Cache-Control', 'no-cache');
-  res.send(audio);
+// ── Audio — Mare Bot architecture ──
+// Client POSTs text here; server calls ElevenLabs and pipes response directly back.
+// No buffering, no token store — same as Mare Bot which works perfectly.
+app.post('/api/speak', auth.requireAuthApi(['client', 'facilitator', 'admin']), async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text) return res.status(400).json({ error: 'No text' });
+    const response = await fetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
+      {
+        method: 'POST',
+        headers: { 'xi-api-key': ELEVENLABS_API_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          model_id: 'eleven_turbo_v2',
+          voice_settings: { stability: 0.85, similarity_boost: 0.85, style: 0.0, use_speaker_boost: true },
+          speed: VOICE_SPEED,
+        }),
+      }
+    );
+    if (!response.ok) {
+      const err = await response.text();
+      return res.status(500).json({ error: err });
+    }
+    res.set('Content-Type', 'audio/mpeg');
+    res.set('Cache-Control', 'no-cache');
+    response.body.pipe(res);
+  } catch(e) {
+    console.error('speak error:', e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Content pages
