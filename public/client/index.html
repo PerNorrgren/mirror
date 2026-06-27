@@ -148,7 +148,10 @@
     <div class="glass" style="position:relative">
 
       <div class="header">
-        <div class="wordmark">Deeper Mindfulness</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
+        <div class="wordmark" style="flex:1">Deeper Mindfulness</div>
+        <button onclick="logout()" style="font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:rgba(255,255,255,0.2);background:none;border:none;cursor:pointer;padding:4px">Sign out</button>
+      </div>
       </div>
 
       <div class="tabs">
@@ -218,8 +221,8 @@
     }, 9000);
 
     // State
-    const clientId = new URLSearchParams(location.search).get('client') || '';
-    const wsUrl = (location.protocol==='https:'?'wss':'ws')+'://'+location.host+'?type=client&client='+clientId;
+    const clientId = ''; // Identity comes from login session
+    const wsUrl = (location.protocol==='https:'?'wss':'ws')+'://'+location.host+'?type=client';
     const ws = new WebSocket(wsUrl);
 
     const transcriptEl = document.getElementById('transcript');
@@ -315,10 +318,9 @@
 
     // Practices
     async function loadPractices() {
-      if(!clientId) return;
-      const res  = await fetch(`/api/clients/${clientId}/practices`);
-      const list = await res.json();
-      renderPractices(list);
+      const res  = await fetch('/api/my/profile');
+      const data = await res.json();
+      renderPractices(data.practices || []);
     }
 
     function renderPractices(list) {
@@ -371,6 +373,10 @@
     document.getElementById('playerClose').addEventListener('click',()=>{
       document.getElementById('playerOverlay').classList.remove('visible');
     });
+  async function logout() {
+    await fetch('/api/logout', { method: 'POST' });
+    window.location.href = '/login';
+  }
   </script>
 </body>
 </html>

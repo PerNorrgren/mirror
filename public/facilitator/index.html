@@ -260,9 +260,12 @@
 
   <!-- Sidebar -->
   <div class="sidebar">
-    <div class="sidebar-header">
-      <div class="logo">Deeper Mindfulness</div>
-      <div class="logo-name">Facilitator</div>
+    <div class="sidebar-header" style="display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div class="logo">Deeper Mindfulness</div>
+        <div class="logo-name">Facilitator</div>
+      </div>
+      <button onclick="logout()" style="font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:rgba(255,255,255,0.25);background:none;border:1px solid rgba(255,255,255,0.08);padding:5px 10px;border-radius:6px;cursor:pointer">Out</button>
     </div>
     <button class="new-client-btn" id="newClientBtn">+ New Client</button>
     <div class="client-list" id="clientList"></div>
@@ -740,6 +743,12 @@
   });
 
   document.getElementById('showArchived').addEventListener('change', loadClients);
+
+  // ── Logout ──
+  async function logout() {
+    await fetch('/api/logout', { method: 'POST' });
+    window.location.href = '/login';
+  }
 
   // ── Init ──
   loadClients();
