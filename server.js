@@ -187,10 +187,39 @@ app.get('/api/admin/facilitators', auth.requireAuthApi(['admin']), (req, res) =>
   res.json(db.getAllFacilitators(includeArchived));
 });
 
-app.patch('/api/admin/facilitators/:id', auth.requireAuthApi(['admin']), (req, res) => {
+app.patch('/api/admin/facilitators/:id', auth.requireAuthApi(['admin']), async (req, res) => {
   const { name, email, action } = req.body;
   if (action === 'archive')   { db.archiveFacilitator(req.params.id); return res.json({ ok: true }); }
   if (action === 'unarchive') { db.unarchiveFacilitator(req.params.id); return res.json({ ok: true }); }
+  if (action === 'reset_password') {
+    const fac = db.getFacilitatorById(req.params.id);
+    if (!fac) return res.status(404).json({ error: 'Not found.' });
+    const tempPassword = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6).toUpperCase();
+    const hash = await auth.hashPassword(tempPassword);
+    db.updateFacilitatorPassword(req.params.id, hash);
+    // Mark as must change password again
+    db.getDb().then(() => {
+      try { db.save && db.save(); } catch {}
+    });
+    // Send reset email
+    sendEmail(fac.email, 'Your Deeper Mindfulness password has been reset',
+      `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
+        <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">Deeper Mindfulness</div>
+        <h1 style="font-size:22px;font-weight:normal;color:#1a1a1a;margin-bottom:24px">Password reset</h1>
+        <p style="font-size:15px;line-height:1.7;color:#444;margin-bottom:24px">Your password has been reset by the administrator. Use the temporary password below to sign in.</p>
+        <div style="background:#f5f5f0;border-radius:10px;padding:20px;margin-bottom:24px">
+          <div style="font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:#888;margin-bottom:6px">Sign in at</div>
+          <div style="font-size:15px;color:#1a1a1a;margin-bottom:16px"><a href="${APP_URL}" style="color:#2d6a4f">${APP_URL}</a></div>
+          <div style="font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:#888;margin-bottom:6px">Temporary password</div>
+          <div style="font-size:20px;font-family:monospace;color:#1a1a1a;letter-spacing:0.06em">${tempPassword}</div>
+        </div>
+        <p style="font-size:14px;line-height:1.7;color:#666">You will be asked to set a new password when you sign in.</p>
+        <hr style="border:none;border-top:1px solid #e0e0e0;margin:28px 0"/>
+        <div style="font-size:12px;color:#aaa">Deeper Mindfulness · Per Norrgren</div>
+      </div>`
+    );
+    return res.json({ ok: true, tempPassword });
+  }
   if (name && email) { db.updateFacilitatorDetails(req.params.id, name.trim(), email.trim()); return res.json({ ok: true }); }
   res.status(400).json({ error: 'Invalid request.' });
 });
