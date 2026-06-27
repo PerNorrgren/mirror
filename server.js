@@ -48,7 +48,7 @@ const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } });
 
 // Clients
 app.get('/api/clients', (req, res) => {
-  try { res.json(dbOps.getAllClients()); }
+  try { const includeArchived = req.query.archived === "1"; res.json(dbOps.getAllClients(includeArchived)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -71,6 +71,11 @@ app.get('/api/clients/:id', (req, res) => {
 app.patch('/api/clients/:id/arc', (req, res) => {
   const { arc } = req.body;
   dbOps.updateArc(req.params.id, arc);
+  res.json({ ok: true });
+});
+
+app.patch('/api/clients/:id/archive', (req, res) => {
+  dbOps.archiveClient(req.params.id);
   res.json({ ok: true });
 });
 
@@ -118,6 +123,20 @@ app.delete('/api/practices/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Strip markdown ──
+function stripMarkdown(text) {
+  return text
+    .replace(/#{1,6}s*/g, '')
+    .replace(/**(.*?)**/g, '$1')
+    .replace(/*(.*?)*/g, '$1')
+    .replace(/^[-*]s+/gm, '')
+    .replace(/
+{3,}/g, '
+
+')
+    .trim();
+}
+
 // ── Claude helper ──
 async function callClaude(systemPrompt, messages, maxTokens = 400) {
   const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -136,7 +155,7 @@ async function callClaude(systemPrompt, messages, maxTokens = 400) {
   });
   const data = await response.json();
   if (!data.content) throw new Error(JSON.stringify(data));
-  return data.content[0].text;
+  return stripMarkdown(data.content[0].text);
 }
 
 // ── ElevenLabs TTS ──

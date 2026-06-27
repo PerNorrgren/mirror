@@ -24,6 +24,7 @@ async function getDb() {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       arc TEXT DEFAULT '',
+      archived INTEGER DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now'))
     )
   `);
@@ -80,11 +81,20 @@ function getClient(id) {
   return rowsToObjects(result[0])[0];
 }
 
-function getAllClients() {
+function getAllClients(includeArchived = false) {
   const d = getDbSync();
-  const result = d.exec('SELECT * FROM clients ORDER BY name ASC');
+  const query = includeArchived
+    ? 'SELECT * FROM clients ORDER BY name ASC'
+    : 'SELECT * FROM clients WHERE archived = 0 ORDER BY name ASC';
+  const result = d.exec(query);
   if (!result.length) return [];
   return rowsToObjects(result[0]);
+}
+
+function archiveClient(clientId) {
+  const d = getDbSync();
+  d.run('UPDATE clients SET archived = 1 - archived WHERE id = ?', [clientId]);
+  save();
 }
 
 function updateArc(clientId, arc) {
@@ -172,6 +182,7 @@ module.exports = {
   createClient,
   getClient,
   getAllClients,
+  archiveClient,
   updateArc,
   addSession,
   getSessionsForClient,
