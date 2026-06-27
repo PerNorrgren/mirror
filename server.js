@@ -420,41 +420,43 @@ async function textToSpeech(text) {
   return Buffer.concat(chunks);
 }
 
-// ── Split text into sentences and send as sequence ──
-function splitSentences(text) {
-  // Split on sentence-ending punctuation, keep the punctuation
-  const raw = text.match(/[^.!?]+[.!?]+[\s]*/g) || [text];
-  return raw.map(s => s.trim()).filter(s => s.length > 0);
+// ── Add natural sentence pauses via SSML ──
+// One API call, pauses baked into the audio — no warm-up artefacts
+const SENTENCE_PAUSE_MS = parseInt(process.env.SENTENCE_PAUSE_MS || '500');
+
+function addSentencePauses(text) {
+  // Insert SSML break tags after sentence-ending punctuation
+  const pause = `<break time="${SENTENCE_PAUSE_MS}ms"/>`;
+  return text
+    .replace(/([.!?])\s+(?=[A-Z])/g, `$1 ${pause} `)
+    .replace(/([.!?])$/g, `$1 ${pause}`);
 }
 
-const SENTENCE_GAP_MS = parseInt(process.env.SENTENCE_GAP_MS || '420');
-
 async function textToSpeechSentences(text, ws) {
-  const sentences = splitSentences(text);
-  
-  if (sentences.length <= 1) {
-    // Single sentence — send as before
-    const audio = await textToSpeech(text);
-    ws.send(JSON.stringify({ type: 'audio', data: audio.toString('base64'), final: true }));
-    return;
-  }
+  // Use SSML to add pauses — single API call, consistent pacing throughout
+  const textWithPauses = addSentencePauses(text);
+  const audio = await textToSpeechSSML(textWithPauses);
+  ws.send(JSON.stringify({ type: 'audio', data: audio.toString('base64'), final: true }));
+}
 
-  // Multiple sentences — send each with a gap marker
-  for (let i = 0; i < sentences.length; i++) {
-    const sentence = sentences[i];
-    if (!sentence.trim()) continue;
-    try {
-      const audio = await textToSpeech(sentence);
-      ws.send(JSON.stringify({
-        type: 'audio',
-        data: audio.toString('base64'),
-        gap: SENTENCE_GAP_MS,
-        final: i === sentences.length - 1
-      }));
-    } catch (e) {
-      console.error('TTS error for sentence:', e.message);
+async function textToSpeechSSML(ssmlText) {
+  const response = await fetch(
+    `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`,
+    {
+      method: 'POST',
+      headers: { 'xi-api-key': ELEVENLABS_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: ssmlText,
+        model_id: 'eleven_turbo_v2',
+        voice_settings: { stability: 0.78, similarity_boost: 0.85, style: 0.0, use_speaker_boost: true },
+        speed: VOICE_SPEED,
+      }),
     }
-  }
+  );
+  if (!response.ok) throw new Error(`ElevenLabs ${response.status}`);
+  const chunks = [];
+  for await (const chunk of response.body) chunks.push(chunk);
+  return Buffer.concat(chunks);
 }
 
 // ── Deepgram STT ──
@@ -523,7 +525,8 @@ wss.on('connection', (ws, req) => {
       sessionTranscript.push(`BOT: ${greeting}`);
 
       ws.send(JSON.stringify({ type: 'greeting', text: greeting }));
-      await textToSpeechSentences(greeting, ws);
+      const greetAudio = await textToSpeech(greeting);
+      ws.send(JSON.stringify({ type: 'audio', data: greetAudio.toString('base64'), final: true }));
 
     } else if (botType === 'facilitator') {
       systemPrompt = prompts.FACILITATOR_SYSTEM_PROMPT(fogLevel);
@@ -570,7 +573,8 @@ wss.on('connection', (ws, req) => {
           conversationHistory.push({ role: 'assistant', content: reply });
           sessionTranscript.push(`BOT: ${reply}`);
           ws.send(JSON.stringify({ type: 'response_text', text: reply }));
-          await textToSpeechSentences(reply, ws);
+          const audio = await textToSpeech(reply);
+              ws.send(JSON.stringify({ type: 'audio', data: audio.toString('base64'), final: true }));
           isProcessing = false;
         } catch (e) { console.error('Claude error:', e); isProcessing = false; }
       });
@@ -601,7 +605,8 @@ wss.on('connection', (ws, req) => {
         conversationHistory.push({ role: 'assistant', content: reply });
         sessionTranscript.push(`BOT: ${reply}`);
         ws.send(JSON.stringify({ type: 'response_text', text: reply }));
-        await textToSpeechSentences(reply, ws);
+        const audio = await textToSpeech(reply);
+              ws.send(JSON.stringify({ type: 'audio', data: audio.toString('base64'), final: true }));
       } catch (e) { console.error(e); }
     }
 
@@ -621,7 +626,8 @@ wss.on('connection', (ws, req) => {
           300
         );
         ws.send(JSON.stringify({ type: 'explanation', text: explanation }));
-        await textToSpeechSentences(explanation, ws);
+        const explAudio = await textToSpeech(explanation);
+        ws.send(JSON.stringify({ type: 'audio', data: explAudio.toString('base64'), final: true }));
       } catch (e) { console.error(e); }
     }
 
