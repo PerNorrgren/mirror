@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Admin — Deeper Mindfulness</title>
+  <style>
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    html, body { width:100%; height:100%; font-family:'Georgia',serif; background:#0d1210; color:rgba(255,255,255,0.82); overflow-y:auto; }
+
+    .topbar { padding:16px 28px; background:rgba(255,255,255,0.04); border-bottom:1px solid rgba(255,255,255,0.07); display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:10; }
+    .logo { font-size:10px; letter-spacing:0.2em; text-transform:uppercase; color:rgba(255,255,255,0.35); }
+    .logo-name { font-size:18px; color:rgba(255,255,255,0.78); }
+    .topbar-right { display:flex; gap:10px; align-items:center; }
+    .btn { padding:7px 16px; border-radius:7px; border:1px solid rgba(255,255,255,0.12); background:none; color:rgba(255,255,255,0.5); font-size:11px; letter-spacing:0.08em; text-transform:uppercase; cursor:pointer; font-family:'Georgia',serif; text-decoration:none; display:inline-flex; align-items:center; transition:all 0.2s; }
+    .btn:hover { background:rgba(255,255,255,0.07); color:rgba(255,255,255,0.8); }
+    .btn.primary { border-color:rgba(180,230,200,0.35); color:rgba(180,230,200,0.75); }
+    .btn.primary:hover { background:rgba(180,230,200,0.1); }
+    .btn.danger { border-color:rgba(255,100,80,0.25); color:rgba(255,100,80,0.6); }
+    .btn.danger:hover { background:rgba(255,100,80,0.08); color:rgba(255,100,80,0.9); }
+    .btn.warn { border-color:rgba(255,180,60,0.3); color:rgba(255,180,60,0.65); }
+    .btn.warn:hover { background:rgba(255,180,60,0.08); }
+    .btn.sm { padding:5px 10px; font-size:10px; }
+
+    .page { max-width:960px; margin:0 auto; padding:32px 28px; display:flex; flex-direction:column; gap:32px; }
+
+    .section-label { font-size:10px; letter-spacing:0.2em; text-transform:uppercase; color:rgba(255,255,255,0.3); margin-bottom:14px; }
+
+    .card { background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:14px; overflow:hidden; }
+    .card-header { padding:16px 20px; border-bottom:1px solid rgba(255,255,255,0.06); display:flex; align-items:center; justify-content:space-between; }
+    .card-title { font-size:14px; color:rgba(255,255,255,0.75); }
+
+    .table { width:100%; }
+    .table-row { display:flex; align-items:center; padding:13px 20px; border-bottom:1px solid rgba(255,255,255,0.04); gap:14px; transition:background 0.15s; }
+    .table-row:last-child { border-bottom:none; }
+    .table-row:hover { background:rgba(255,255,255,0.03); }
+    .table-row.archived { opacity:0.45; }
+    .col-name { flex:1.2; font-size:14px; color:rgba(255,255,255,0.8); }
+    .col-email { flex:1.5; font-size:12px; color:rgba(255,255,255,0.4); }
+    .col-status { flex:0.6; }
+    .col-actions { display:flex; gap:6px; flex-shrink:0; }
+    .status-badge { font-size:10px; padding:3px 8px; border-radius:4px; letter-spacing:0.06em; }
+    .status-active { background:rgba(180,230,200,0.1); color:rgba(180,230,200,0.7); }
+    .status-archived { background:rgba(255,255,255,0.06); color:rgba(255,255,255,0.3); }
+    .status-pending { background:rgba(255,200,80,0.1); color:rgba(255,200,80,0.65); }
+
+    .empty { padding:28px 20px; font-size:13px; color:rgba(255,255,255,0.25); font-style:italic; }
+    .loading { padding:28px 20px; font-size:13px; color:rgba(255,255,255,0.2); font-style:italic; }
+
+    .show-archived-wrap { display:flex; align-items:center; gap:8px; font-size:12px; color:rgba(255,255,255,0.3); cursor:pointer; }
+    .show-archived-wrap input { accent-color:#b4e6c8; }
+
+    /* Modal */
+    .modal-overlay { display:none; position:fixed; inset:0; z-index:100; background:rgba(0,0,0,0.65); backdrop-filter:blur(8px); align-items:center; justify-content:center; padding:20px; }
+    .modal-overlay.open { display:flex; }
+    .modal { background:#141a17; border:1px solid rgba(255,255,255,0.12); border-radius:16px; padding:28px; width:100%; max-width:420px; display:flex; flex-direction:column; gap:16px; }
+    .modal h3 { font-size:16px; color:rgba(255,255,255,0.85); font-weight:normal; }
+    .modal label { font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:rgba(255,255,255,0.35); display:block; margin-bottom:5px; }
+    .modal input { width:100%; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:8px; padding:10px 13px; font-size:14px; color:rgba(255,255,255,0.82); font-family:'Georgia',serif; outline:none; }
+    .modal input:focus { border-color:rgba(180,230,200,0.3); }
+    .modal-note { font-size:12px; color:rgba(255,255,255,0.3); line-height:1.6; }
+    .modal-err { font-size:12px; color:rgba(255,120,100,0.8); min-height:16px; }
+    .modal-btns { display:flex; gap:10px; justify-content:flex-end; margin-top:4px; }
+    .modal-cancel { padding:8px 18px; border-radius:8px; border:1px solid rgba(255,255,255,0.12); background:none; color:rgba(255,255,255,0.45); cursor:pointer; font-family:'Georgia',serif; font-size:13px; }
+    .modal-ok { padding:8px 18px; border-radius:8px; border:1px solid rgba(180,230,200,0.3); background:rgba(180,230,200,0.1); color:rgba(180,230,200,0.8); cursor:pointer; font-family:'Georgia',serif; font-size:13px; }
+
+    .temp-pass-box { background:rgba(180,230,200,0.07); border:1px solid rgba(180,230,200,0.2); border-radius:10px; padding:16px; }
+    .temp-pass-label { font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:rgba(180,230,200,0.45); margin-bottom:8px; }
+    .temp-pass-value { font-size:20px; letter-spacing:0.08em; color:rgba(180,230,200,1); font-family:monospace; }
+    .temp-pass-note { font-size:12px; color:rgba(255,255,255,0.3); margin-top:10px; line-height:1.6; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div style="position:relative">
+      <div class="logo">Deeper Mindfulness</div>
+      <button onclick="toggleAdminMenu()" style="display:flex;align-items:center;gap:6px;background:none;border:none;cursor:pointer;padding:4px 0;margin-top:2px">
+        <span class="logo-name" style="font-size:18px">Admin</span>
+        <span style="color:rgba(255,255,255,0.3);font-size:11px">▾</span>
+      </button>
+      <div id="adminMenu" style="display:none;position:absolute;top:100%;left:0;background:#1a2420;border:1px solid rgba(255,255,255,0.1);border-radius:0 0 10px 10px;z-index:50;min-width:160px;overflow:hidden">
+        <button onclick="logout()" style="width:100%;padding:11px 16px;background:none;border:none;color:rgba(255,255,255,0.4);font-size:13px;font-family:Georgia,serif;cursor:pointer;text-align:left">Sign out</button>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <a href="/admin/content" class="btn">Content library</a>
+    </div>
+  </div>
+
+  <div class="page">
+
+    <!-- Facilitators -->
+    <div>
+      <div class="section-label">Facilitators</div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">All facilitators</div>
+          <div style="display:flex;gap:12px;align-items:center">
+            <label class="show-archived-wrap">
+              <input type="checkbox" id="showArchivedFac" onchange="loadFacilitators()"/>
+              Show archived
+            </label>
+            <button class="btn primary" onclick="openNewFac()">+ Add facilitator</button>
+          </div>
+        </div>
+        <div class="table" id="facTable"><div class="loading">Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- Clients -->
+    <div>
+      <div class="section-label">All clients</div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">All clients across facilitators</div>
+          <div style="display:flex;gap:12px;align-items:center">
+            <label class="show-archived-wrap">
+              <input type="checkbox" id="showArchivedClients" onchange="loadClients()"/>
+              Show archived
+            </label>
+            <button class="btn primary" onclick="openNewClient()">+ Add client</button>
+          </div>
+        </div>
+        <div class="table" id="clientTable"><div class="loading">Loading…</div></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- New Facilitator Modal -->
+  <div class="modal-overlay" id="newFacModal">
+    <div class="modal">
+      <h3>Add facilitator</h3>
+      <div><label>Full name</label><input type="text" id="facName" placeholder="e.g. Anna Lindqvist"/></div>
+      <div><label>Email address</label><input type="email" id="facEmail" placeholder="anna@example.com"/></div>
+      <div class="modal-err" id="facErr"></div>
+      <div class="modal-btns">
+        <button class="modal-cancel" onclick="closeModal('newFacModal')">Cancel</button>
+        <button class="modal-ok" onclick="createFacilitator()">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Temp Password Modal -->
+  <div class="modal-overlay" id="tempPassModal">
+    <div class="modal">
+      <h3>Facilitator created</h3>
+      <div class="temp-pass-box">
+        <div class="temp-pass-label">Temporary password</div>
+        <div class="temp-pass-value" id="tempPassValue"></div>
+        <div class="temp-pass-note">A welcome email has been sent. Share this password as a backup if the email doesn't arrive. They will be asked to change it on first login.</div>
+      </div>
+      <div class="modal-btns">
+        <button class="modal-ok" onclick="closeModal('tempPassModal');loadFacilitators()">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Facilitator Modal -->
+  <div class="modal-overlay" id="editFacModal">
+    <div class="modal">
+      <h3>Edit facilitator</h3>
+      <input type="hidden" id="editFacId"/>
+      <div><label>Name</label><input type="text" id="editFacName"/></div>
+      <div><label>Email</label><input type="email" id="editFacEmail"/></div>
+      <div class="modal-err" id="editFacErr"></div>
+      <div style="border-top:1px solid rgba(255,255,255,0.07);padding-top:14px;margin-top:4px">
+        <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:rgba(255,255,255,0.25);margin-bottom:10px">Password</div>
+        <button class="btn warn" onclick="resetFacPassword()" style="width:100%;justify-content:center">Reset password &amp; send email</button>
+        <div style="font-size:11px;color:rgba(255,255,255,0.2);margin-top:8px;line-height:1.5">Generates a new temporary password and emails it to the facilitator. They will be prompted to change it on next login.</div>
+      </div>
+      <div class="modal-btns">
+        <button class="modal-cancel" onclick="closeModal('editFacModal')">Cancel</button>
+        <button class="modal-ok" onclick="saveEditFac()">Save details</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reset Password Confirm Modal -->
+  <div class="modal-overlay" id="resetPassModal">
+    <div class="modal">
+      <h3>Password reset</h3>
+      <div class="temp-pass-box">
+        <div class="temp-pass-label">New temporary password</div>
+        <div class="temp-pass-value" id="resetPassValue"></div>
+        <div class="temp-pass-note">An email has been sent to the facilitator. Keep this as backup in case the email doesn't arrive.</div>
+      </div>
+      <div class="modal-btns">
+        <button class="modal-ok" onclick="closeModal('resetPassModal');loadFacilitators()">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm Delete Modal -->
+  <div class="modal-overlay" id="confirmDeleteModal">
+    <div class="modal">
+      <h3>Delete facilitator</h3>
+      <input type="hidden" id="deleteFacId"/>
+      <p class="modal-note">This permanently deletes the facilitator account. Their clients will remain but become unassigned. This cannot be undone.</p>
+      <div class="modal-btns">
+        <button class="modal-cancel" onclick="closeModal('confirmDeleteModal')">Cancel</button>
+        <button class="btn danger" onclick="confirmDelete()" style="padding:8px 18px;border-radius:8px;font-family:Georgia,serif;font-size:13px">Delete permanently</button>
+      </div>
+    </div>
+  </div>
+
+<!-- New Client Modal -->
+<div class="modal-overlay" id="newClientModal">
+  <div class="modal">
+    <h3>Add client</h3>
+    <div>
+      <label>Name</label>
+      <input type="text" id="ncName" placeholder="First name"/>
+    </div>
+    <div>
+      <label>Email <span style="color:rgba(255,255,255,0.2);font-size:10px;letter-spacing:0;text-transform:none">(optional — needed for login)</span></label>
+      <input type="email" id="ncEmail" placeholder="client@example.com"/>
+    </div>
+    <div>
+      <label>Assign to facilitator</label>
+      <select id="ncFacilitator">
+        <option value="">Select facilitator…</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:10px">
+      <div style="flex:1">
+        <label>Programme</label>
+        <select id="ncCat" onchange="loadNcSubs()">
+          <option value="">Select…</option>
+        </select>
+      </div>
+      <div style="flex:1">
+        <label>Track</label>
+        <select id="ncSub">
+          <option value="">Select…</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-err" id="ncErr"></div>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeModal('newClientModal')">Cancel</button>
+      <button class="modal-ok" onclick="createClient()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Client Created Modal -->
+<div class="modal-overlay" id="clientCreatedModal">
+  <div class="modal">
+    <h3>Client created</h3>
+    <div id="clientCreatedBody"></div>
+    <div class="modal-btns">
+      <button class="modal-ok" onclick="closeModal('clientCreatedModal');loadClients()">Done</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+  function openModal(id)  { document.getElementById(id).classList.add('open'); }
+  async function logout()  { await fetch('/api/logout',{method:'POST'}); location.href='/login'; }
+  function toggleAdminMenu() {
+    const m = document.getElementById('adminMenu');
+    m.style.display = m.style.display === 'none' ? 'block' : 'none';
+  }
+  document.addEventListener('click', e => {
+    const m = document.getElementById('adminMenu');
+    if (m && !e.target.closest('.topbar')) m.style.display = 'none';
+  });
+
+  // ── Facilitators ──
+  async function loadFacilitators() {
+    const archived = document.getElementById('showArchivedFac').checked ? 1 : 0;
+    const res  = await fetch(`/api/admin/facilitators?archived=${archived}`);
+    const list = await res.json();
+    const el   = document.getElementById('facTable');
+
+    if (!list.length) { el.innerHTML = '<div class="empty">No facilitators yet.</div>'; return; }
+
+    el.innerHTML = list.map(f => {
+      const isArchived = f.role === 'facilitator_archived';
+      const isPending  = f.must_change_password;
+      return `
+        <div class="table-row ${isArchived ? 'archived' : ''}">
+          <div class="col-name">${f.name}</div>
+          <div class="col-email">${f.email}</div>
+          <div class="col-status">
+            ${isArchived
+              ? '<span class="status-badge status-archived">Archived</span>'
+              : isPending
+                ? '<span class="status-badge status-pending">Pending login</span>'
+                : '<span class="status-badge status-active">Active</span>'}
+          </div>
+          <div class="col-actions">
+            <button class="btn sm" onclick="openEditFac('${f.id}','${f.name.replace(/'/g,"\\'")}','${f.email}')">Edit</button>
+            ${isArchived
+              ? `<button class="btn sm warn" onclick="archiveFac('${f.id}',false)">Unarchive</button>`
+              : `<button class="btn sm warn" onclick="archiveFac('${f.id}',true)">Archive</button>`}
+            <button class="btn sm danger" onclick="openConfirmDelete('${f.id}')">Delete</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function openNewFac() {
+    document.getElementById('facName').value  = '';
+    document.getElementById('facEmail').value = '';
+    document.getElementById('facErr').textContent = '';
+    openModal('newFacModal');
+    document.getElementById('facName').focus();
+  }
+
+  async function createFacilitator() {
+    const name  = document.getElementById('facName').value.trim();
+    const email = document.getElementById('facEmail').value.trim();
+    const err   = document.getElementById('facErr');
+    if (!name || !email) { err.textContent = 'Name and email required.'; return; }
+
+    const res  = await fetch('/api/admin/facilitators', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name, email })
+    });
+    const data = await res.json();
+    if (data.error) { err.textContent = data.error; return; }
+
+    closeModal('newFacModal');
+    document.getElementById('tempPassValue').textContent = data.tempPassword;
+    openModal('tempPassModal');
+  }
+
+  function openEditFac(id, name, email) {
+    document.getElementById('editFacId').value   = id;
+    document.getElementById('editFacName').value  = name;
+    document.getElementById('editFacEmail').value = email;
+    document.getElementById('editFacErr').textContent = '';
+    openModal('editFacModal');
+    document.getElementById('editFacName').focus();
+  }
+
+  async function resetFacPassword() {
+    const id = document.getElementById('editFacId').value;
+    const res  = await fetch(`/api/admin/facilitators/${id}`, {
+      method: 'PATCH', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ action: 'reset_password' })
+    });
+    const data = await res.json();
+    if (data.error) { document.getElementById('editFacErr').textContent = data.error; return; }
+    closeModal('editFacModal');
+    document.getElementById('resetPassValue').textContent = data.tempPassword;
+    openModal('resetPassModal');
+  }
+
+  async function saveEditFac() {
+    const id    = document.getElementById('editFacId').value;
+    const name  = document.getElementById('editFacName').value.trim();
+    const email = document.getElementById('editFacEmail').value.trim();
+    const err   = document.getElementById('editFacErr');
+    if (!name || !email) { err.textContent = 'Name and email required.'; return; }
+
+    const res  = await fetch(`/api/admin/facilitators/${id}`, {
+      method: 'PATCH', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name, email })
+    });
+    const data = await res.json();
+    if (data.error) { err.textContent = data.error; return; }
+    closeModal('editFacModal');
+    loadFacilitators();
+  }
+
+  async function archiveFac(id, archive) {
+    await fetch(`/api/admin/facilitators/${id}`, {
+      method: 'PATCH', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ action: archive ? 'archive' : 'unarchive' })
+    });
+    loadFacilitators();
+  }
+
+  function openConfirmDelete(id) {
+    document.getElementById('deleteFacId').value = id;
+    openModal('confirmDeleteModal');
+  }
+
+  async function confirmDelete() {
+    const id = document.getElementById('deleteFacId').value;
+    await fetch(`/api/admin/facilitators/${id}`, { method: 'DELETE' });
+    closeModal('confirmDeleteModal');
+    loadFacilitators();
+  }
+
+  // ── Clients ──
+  let allCats = [], allFacs = [];
+
+  async function openNewClient() {
+    document.getElementById('ncName').value  = '';
+    document.getElementById('ncEmail').value = '';
+    document.getElementById('ncErr').textContent = '';
+
+    // Load facilitators
+    const facRes = await fetch('/api/admin/facilitators');
+    allFacs = await facRes.json();
+    const facEl = document.getElementById('ncFacilitator');
+    facEl.innerHTML = '<option value="">Select facilitator…</option>';
+    allFacs.forEach(f => { facEl.innerHTML += `<option value="${f.id}">${f.name}</option>`; });
+
+    // Load categories
+    const catRes = await fetch('/api/content/categories');
+    allCats = await catRes.json();
+    const catEl = document.getElementById('ncCat');
+    catEl.innerHTML = '<option value="">Select…</option>';
+    allCats.filter(c => !c.parent_id).forEach(c => { catEl.innerHTML += `<option value="${c.id}">${c.name}</option>`; });
+    document.getElementById('ncSub').innerHTML = '<option value="">Select…</option>';
+
+    openModal('newClientModal');
+    document.getElementById('ncName').focus();
+  }
+
+  function loadNcSubs() {
+    const catId = document.getElementById('ncCat').value;
+    const subEl = document.getElementById('ncSub');
+    subEl.innerHTML = '<option value="">Select…</option>';
+    allCats.filter(c => c.parent_id === catId).forEach(s => { subEl.innerHTML += `<option value="${s.id}">${s.name}</option>`; });
+  }
+
+  async function createClient() {
+    const name         = document.getElementById('ncName').value.trim();
+    const email        = document.getElementById('ncEmail').value.trim();
+    const facilitatorId = document.getElementById('ncFacilitator').value;
+    const categoryId   = document.getElementById('ncCat').value;
+    const subcategoryId = document.getElementById('ncSub').value;
+    const err          = document.getElementById('ncErr');
+
+    if (!name)         { err.textContent = 'Name required.'; return; }
+    if (!facilitatorId){ err.textContent = 'Please assign a facilitator.'; return; }
+
+    const res  = await fetch('/api/clients', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email: email||null, facilitator_id: facilitatorId,
+        categoryId: categoryId||null, subcategoryId: subcategoryId||null })
+    });
+    const data = await res.json();
+    if (data.error) { err.textContent = data.error; return; }
+
+    closeModal('newClientModal');
+
+    const body = document.getElementById('clientCreatedBody');
+    if (email && data.tempPassword) {
+      body.innerHTML = `
+        <div style="background:rgba(180,230,200,0.07);border:1px solid rgba(180,230,200,0.2);border-radius:10px;padding:16px">
+          <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:rgba(180,230,200,0.45);margin-bottom:6px">Temporary password</div>
+          <div style="font-size:20px;font-family:monospace;color:rgba(180,230,200,1);letter-spacing:0.06em">${data.tempPassword}</div>
+          <div style="font-size:12px;color:rgba(255,255,255,0.3);margin-top:8px">Welcome email sent to ${email}. Keep this as backup.</div>
+        </div>`;
+    } else {
+      body.innerHTML = `<div style="font-size:14px;color:rgba(255,255,255,0.65);line-height:1.6">${name} created${email?'':' — no email set. Add one later to enable login.'}.</div>`;
+    }
+    openModal('clientCreatedModal');
+    loadClients();
+  }
+
+  // ── Clients ──
+  async function loadClients() {
+    const el = document.getElementById('clientTable');
+    try {
+      const archived = document.getElementById('showArchivedClients').checked ? 1 : 0;
+      const res  = await fetch(`/api/admin/clients?archived=${archived}`);
+      if (!res.ok) { el.innerHTML = '<div class="empty">Error loading clients.</div>'; return; }
+      const list = await res.json();
+      if (!Array.isArray(list) || !list.length) {
+        el.innerHTML = '<div class="empty">No clients yet.</div>'; return;
+      }
+      el.innerHTML = list.map(c => `
+        <div class="table-row ${c.archived ? 'archived' : ''}">
+          <div class="col-name">${c.name}</div>
+          <div class="col-email">${c.email || '<span style="color:rgba(255,255,255,0.2)">No login</span>'}</div>
+          <div class="col-status">
+            <span class="status-badge ${c.archived ? 'status-archived' : 'status-active'}">
+              ${c.archived ? 'Archived' : 'Active'}
+            </span>
+          </div>
+          <div class="col-actions">
+            <span style="font-size:12px;color:rgba(255,255,255,0.3)">${c.facilitator_name || 'Unassigned'}</span>
+          </div>
+        </div>
+      `).join('');
+    } catch(e) {
+      el.innerHTML = '<div class="empty">Error: ' + e.message + '</div>';
+    }
+  }
+
+  // Keyboard shortcuts
+  document.getElementById('facName').addEventListener('keydown', e => { if(e.key==='Enter') document.getElementById('facEmail').focus(); });
+  document.getElementById('facEmail').addEventListener('keydown', e => { if(e.key==='Enter') createFacilitator(); });
+  document.getElementById('editFacName').addEventListener('keydown', e => { if(e.key==='Enter') document.getElementById('editFacEmail').focus(); });
+  document.getElementById('editFacEmail').addEventListener('keydown', e => { if(e.key==='Enter') saveEditFac(); });
+
+  // Init
+  loadFacilitators();
+  loadClients();
+</script>
+</body>
+</html>
