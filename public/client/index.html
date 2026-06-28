@@ -8,13 +8,11 @@
     *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
     html, body { width:100%; height:100%; overflow:hidden; font-family:'Georgia',serif; background:#0a0f0d; }
 
-    /* Slideshow */
     .slideshow { position:fixed; inset:0; z-index:0; }
     .slide { position:absolute; inset:0; background-size:cover; background-position:center; opacity:0; transition:opacity 3s ease-in-out; }
     .slide.active { opacity:1; }
     .veil { position:fixed; inset:0; z-index:1; background:rgba(0,0,0,0.38); }
 
-    /* Layout */
     .panel { position:fixed; inset:0; z-index:2; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:20px; }
 
     .glass {
@@ -27,14 +25,11 @@
       max-height:90vh;
     }
 
-    /* Header */
     .header { padding:18px 24px 14px; border-bottom:1px solid rgba(255,255,255,0.07); display:flex; align-items:center; justify-content:space-between; flex-shrink:0; }
     .wordmark { font-size:10px; letter-spacing:0.25em; text-transform:uppercase; color:rgba(255,255,255,0.4); }
-    .header-right { display:flex; gap:10px; align-items:center; }
     .hdr-btn { font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:rgba(255,255,255,0.22); background:none; border:none; cursor:pointer; padding:3px; font-family:'Georgia',serif; }
     .hdr-btn:hover { color:rgba(255,255,255,0.5); }
 
-    /* Tabs */
     .tabs { display:flex; border-bottom:1px solid rgba(255,255,255,0.07); flex-shrink:0; }
     .tab { flex:1; padding:11px; text-align:center; font-size:11px; letter-spacing:0.15em; text-transform:uppercase; color:rgba(255,255,255,0.35); cursor:pointer; background:none; border:none; font-family:'Georgia',serif; transition:all 0.2s; }
     .tab.active { color:rgba(255,255,255,0.85); border-bottom:1.5px solid rgba(180,230,200,0.6); }
@@ -80,7 +75,6 @@
     .practices-scroll { overflow-y:auto; flex:1; padding:14px 18px; max-height:400px; }
     .practices-scroll::-webkit-scrollbar { width:3px; }
     .practices-scroll::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.1); border-radius:2px; }
-
     .practice-item { display:flex; align-items:center; gap:12px; padding:11px 13px; margin-bottom:7px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); border-radius:11px; cursor:pointer; transition:background 0.2s; }
     .practice-item:hover { background:rgba(255,255,255,0.09); }
     .practice-icon { font-size:18px; flex-shrink:0; }
@@ -100,6 +94,27 @@
     .session-date { font-size:11px; color:rgba(255,255,255,0.3); margin-bottom:6px; letter-spacing:0.05em; }
     .session-summary { font-size:13px; color:rgba(255,255,255,0.65); line-height:1.65; }
     .no-sessions { text-align:center; padding:32px 20px; color:rgba(255,255,255,0.3); font-size:14px; font-style:italic; }
+
+    /* Config tab */
+    .config-view { display:none; flex-direction:column; overflow:hidden; }
+    .config-view.visible { display:flex; }
+    .config-scroll { overflow-y:auto; flex:1; padding:20px 20px 24px; max-height:400px; }
+    .config-section { margin-bottom:24px; }
+    .config-label { font-size:10px; letter-spacing:0.18em; text-transform:uppercase; color:rgba(255,255,255,0.3); margin-bottom:12px; display:block; }
+    .voice-list { display:flex; flex-direction:column; gap:8px; }
+    .voice-row { display:flex; align-items:center; gap:10px; padding:10px 13px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); border-radius:10px; cursor:pointer; transition:all 0.2s; }
+    .voice-row:hover { background:rgba(255,255,255,0.08); }
+    .voice-row.selected { background:rgba(180,230,200,0.08); border-color:rgba(180,230,200,0.3); }
+    .voice-radio { width:14px; height:14px; border-radius:50%; border:1.5px solid rgba(255,255,255,0.25); flex-shrink:0; display:flex; align-items:center; justify-content:center; transition:all 0.2s; }
+    .voice-row.selected .voice-radio { border-color:rgba(180,230,200,0.7); background:rgba(180,230,200,0.15); }
+    .voice-radio-dot { width:6px; height:6px; border-radius:50%; background:rgba(180,230,200,0.9); display:none; }
+    .voice-row.selected .voice-radio-dot { display:block; }
+    .voice-info { flex:1; }
+    .voice-name { font-size:13px; color:rgba(255,255,255,0.78); }
+    .voice-desc { font-size:11px; color:rgba(255,255,255,0.32); margin-top:2px; }
+    .preview-btn { font-size:11px; letter-spacing:0.08em; text-transform:uppercase; color:rgba(255,255,255,0.3); background:none; border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:5px 10px; cursor:pointer; font-family:'Georgia',serif; transition:all 0.2s; flex-shrink:0; }
+    .preview-btn:hover { color:rgba(255,255,255,0.6); border-color:rgba(255,255,255,0.25); }
+    .preview-btn.playing { color:rgba(180,230,200,0.8); border-color:rgba(180,230,200,0.3); }
 
     /* Player overlay */
     .player-overlay { display:none; position:absolute; inset:0; z-index:10; background:rgba(10,15,13,0.94); backdrop-filter:blur(12px); border-radius:22px; flex-direction:column; align-items:center; justify-content:center; gap:20px; padding:32px; }
@@ -144,9 +159,10 @@
       </div>
 
       <div class="tabs">
-        <button class="tab active" id="tabTalk" onclick="switchTab('talk')">Talk</button>
-        <button class="tab" id="tabPractices" onclick="switchTab('practices')">Practices</button>
-        <button class="tab" id="tabSessions" onclick="switchTab('sessions')">Sessions</button>
+        <button class="tab active" id="tabTalk"      onclick="switchTab('talk')">Talk</button>
+        <button class="tab"        id="tabPractices" onclick="switchTab('practices')">Practices</button>
+        <button class="tab"        id="tabSessions"  onclick="switchTab('sessions')">Sessions</button>
+        <button class="tab"        id="tabConfig"    onclick="switchTab('config')">Voice</button>
       </div>
 
       <!-- Talk -->
@@ -180,6 +196,16 @@
         </div>
       </div>
 
+      <!-- Config / Voice -->
+      <div class="config-view" id="configView">
+        <div class="config-scroll">
+          <div class="config-section">
+            <span class="config-label">Choose your voice</span>
+            <div class="voice-list" id="voiceList"></div>
+          </div>
+        </div>
+      </div>
+
       <!-- Player overlay -->
       <div class="player-overlay" id="playerOverlay">
         <div class="player-title" id="playerTitle"></div>
@@ -206,7 +232,92 @@
   </div>
 
   <script>
-    // Slideshow
+    // ── Voices ──
+    const VOICES = [
+      { id: 'aura-zeus-en',     name: 'Zeus',     desc: 'Deep, grounded, male' },
+      { id: 'aura-orion-en',    name: 'Orion',    desc: 'Warm, steady, male' },
+      { id: 'aura-arcas-en',    name: 'Arcas',    desc: 'Natural, gentle, male' },
+      { id: 'aura-perseus-en',  name: 'Perseus',  desc: 'Clear, direct, male' },
+      { id: 'aura-angus-en',    name: 'Angus',    desc: 'Irish accent, male' },
+      { id: 'aura-helios-en',   name: 'Helios',   desc: 'Bright, clear, male' },
+      { id: 'aura-asteria-en',  name: 'Asteria',  desc: 'Warm, female' },
+      { id: 'aura-luna-en',     name: 'Luna',     desc: 'Soft, calm, female' },
+      { id: 'aura-stella-en',   name: 'Stella',   desc: 'Expressive, female' },
+      { id: 'aura-athena-en',   name: 'Athena',   desc: 'Measured, female' },
+      { id: 'aura-hera-en',     name: 'Hera',     desc: 'Clear, authoritative, female' },
+    ];
+
+    const PREVIEW_TEXT = "You're here. Before anything else — just notice where you're sitting right now. The chair is already holding your weight. You don't have to do that yourself.";
+    const VOICE_KEY = 'perbot_voice';
+
+    let selectedVoice = localStorage.getItem(VOICE_KEY) || 'aura-zeus-en';
+    let previewAudio  = null;
+    let activePreviewBtn = null;
+
+    function saveVoice(voiceId) {
+      selectedVoice = voiceId;
+      localStorage.setItem(VOICE_KEY, voiceId);
+      renderVoiceList();
+    }
+
+    async function previewVoice(voiceId, btn) {
+      // Stop any playing preview
+      if (previewAudio) { previewAudio.pause(); previewAudio = null; }
+      if (activePreviewBtn) { activePreviewBtn.textContent = 'Preview'; activePreviewBtn.classList.remove('playing'); }
+
+      if (activePreviewBtn === btn) { activePreviewBtn = null; return; } // toggle off
+
+      btn.textContent = '…';
+      btn.classList.add('playing');
+      activePreviewBtn = btn;
+
+      try {
+        const r = await fetch('/api/speak', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: PREVIEW_TEXT, voice: voiceId })
+        });
+        if (!r.ok) throw new Error('preview failed');
+        const buffer = await r.arrayBuffer();
+        const blob   = new Blob([buffer], { type: 'audio/mpeg' });
+        const url    = URL.createObjectURL(blob);
+        previewAudio = new Audio(url);
+        btn.textContent = '■ Stop';
+        previewAudio.onended = () => {
+          URL.revokeObjectURL(url);
+          previewAudio = null;
+          btn.textContent = 'Preview';
+          btn.classList.remove('playing');
+          activePreviewBtn = null;
+        };
+        previewAudio.onerror = () => {
+          btn.textContent = 'Preview';
+          btn.classList.remove('playing');
+          activePreviewBtn = null;
+        };
+        await previewAudio.play();
+      } catch(e) {
+        btn.textContent = 'Preview';
+        btn.classList.remove('playing');
+        activePreviewBtn = null;
+      }
+    }
+
+    function renderVoiceList() {
+      const el = document.getElementById('voiceList');
+      el.innerHTML = VOICES.map(v => `
+        <div class="voice-row ${v.id === selectedVoice ? 'selected' : ''}" onclick="saveVoice('${v.id}')">
+          <div class="voice-radio"><div class="voice-radio-dot"></div></div>
+          <div class="voice-info">
+            <div class="voice-name">${v.name}</div>
+            <div class="voice-desc">${v.desc}</div>
+          </div>
+          <button class="preview-btn" onclick="event.stopPropagation(); previewVoice('${v.id}', this)">Preview</button>
+        </div>
+      `).join('');
+    }
+
+    // ── Slideshow ──
     const slides = [
       'https://images.unsplash.com/photo-1505118380757-91f5f5632de0?w=1600&q=80',
       'https://images.unsplash.com/photo-1433086966358-54859d0ed716?w=1600&q=80',
@@ -230,19 +341,21 @@
       slideEls[cur].classList.add('active');
     }, 9000);
 
-    // Tabs
+    // ── Tabs ──
     function switchTab(tab) {
-      ['talk','practices','sessions'].forEach(t => {
+      ['talk','practices','sessions','config'].forEach(t => {
         document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1)).classList.toggle('active', t === tab);
       });
-      document.getElementById('talkView').style.display      = tab === 'talk'      ? '' : 'none';
+      document.getElementById('talkView').style.display = tab === 'talk' ? '' : 'none';
       document.getElementById('practicesView').classList.toggle('visible', tab === 'practices');
       document.getElementById('sessionsView').classList.toggle('visible',  tab === 'sessions');
+      document.getElementById('configView').classList.toggle('visible',    tab === 'config');
       if (tab === 'practices') loadPractices();
       if (tab === 'sessions')  loadSessions();
+      if (tab === 'config')    renderVoiceList();
     }
 
-    // Auth
+    // ── Auth ──
     async function logout() { await fetch('/api/logout',{method:'POST'}); location.href='/login'; }
     function toggleClientMenu() {
       const m = document.getElementById('clientMenu');
@@ -274,25 +387,21 @@
       document.getElementById('pwOverlay').classList.remove('visible');
     }
 
-    // ── Request mic permission on load ──
+    // ── Mic permission ──
+    let micPermissionGranted = false;
     async function requestPermissions() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        // Permission granted — stop the stream immediately, we just needed the grant
         stream.getTracks().forEach(t => t.stop());
         micPermissionGranted = true;
-        console.log('Mic permission granted');
       } catch(e) {
-        console.log('Mic permission denied or unavailable:', e.message);
         statusEl.textContent = 'mic access needed — check browser settings';
         statusEl.classList.add('on');
       }
     }
-
-    // Request on load
     requestPermissions();
 
-    // WebSocket
+    // ── WebSocket ──
     const wsUrl = (location.protocol==='https:'?'wss':'ws')+'://'+location.host+'?type=client';
     const ws = new WebSocket(wsUrl);
 
@@ -302,8 +411,7 @@
     const waveEl       = document.getElementById('wave');
     const dotsEl       = document.getElementById('dots');
 
-    let isListening=false, mediaStream=null, mediaRecorder=null;
-    let micPermissionGranted = false;
+    let isListening=false, isSpeaking=false, mediaStream=null, mediaRecorder=null;
     let pendingText = null;
 
     function setState(s) {
@@ -315,10 +423,9 @@
       else if(s==='speaking'){ waveEl.classList.add('on'); }
     }
 
-    // ── Audio — Mare Bot architecture ──
-    // Server sends speak_text over WebSocket.
-    // Client POSTs text to /api/speak, server pipes ElevenLabs directly back.
-    // Identical to Mare Bot which works perfectly.
+    // ── Audio — Deepgram Aura via /api/speak ──
+    // Client sends selected voice with each request.
+    // Server calls Deepgram and pipes audio directly back.
     let currentAudio = null;
 
     async function speak(text) {
@@ -330,14 +437,14 @@
           const r = await fetch('/api/speak', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text })
+            body: JSON.stringify({ text, voice: selectedVoice })
           });
 
           if (!r.ok) throw new Error('speak failed');
 
           const buffer = await r.arrayBuffer();
-          const blob = new Blob([buffer], { type: 'audio/mpeg' });
-          const url = URL.createObjectURL(blob);
+          const blob   = new Blob([buffer], { type: 'audio/mpeg' });
+          const url    = URL.createObjectURL(blob);
           currentAudio = new Audio(url);
 
           currentAudio.onended = () => {
@@ -387,11 +494,10 @@
       if(msg.type==='listening_stopped'){ setState('processing'); }
       if(msg.type==='interim_transcript'){ transcriptEl.textContent=msg.text; transcriptEl.className='transcript-text dim'; }
       if(msg.type==='final_transcript'){ transcriptEl.textContent=msg.text; transcriptEl.className='transcript-text user'; setState('processing'); }
-      if(msg.type==='response_text'){
-        pendingText = msg.text;
-      }
+      if(msg.type==='response_text'){ pendingText = msg.text; }
     };
 
+    // ── Mic ──
     async function startListening() {
       if(isListening) return;
       try { mediaStream=await navigator.mediaDevices.getUserMedia({audio:true}); }
@@ -423,20 +529,18 @@
     document.addEventListener('keydown', e=>{ if(e.code==='Space'&&!e.repeat){ e.preventDefault(); startListening(); } });
     document.addEventListener('keyup',   e=>{ if(e.code==='Space'){ e.preventDefault(); stopListening(); } });
 
-    // Practices
+    // ── Practices ──
     async function loadPractices() {
       const res  = await fetch('/api/my/profile');
       const data = await res.json();
       renderPractices(data.practices || []);
     }
-
     function renderPractices(list) {
       const el = document.getElementById('practicesList');
       if(!list.length){ el.innerHTML='<div class="no-practices">No practices yet.</div>'; return; }
       const favs   = list.filter(p=>p.is_favourite);
       const others = list.filter(p=>!p.is_favourite);
-      const sorted = [...favs, ...others];
-      el.innerHTML = sorted.map(p=>`
+      el.innerHTML = [...favs,...others].map(p=>`
         <div class="practice-item" onclick="openPractice('${p.id}','${p.title.replace(/'/g,"\\'")}','${p.type}','${p.content?.replace(/'/g,"\\'")||''}','${p.filename||''}')">
           <span class="practice-icon">${p.type==='audio'?'🎵':'📄'}</span>
           <div class="practice-info">
@@ -447,12 +551,7 @@
         </div>
       `).join('');
     }
-
-    async function toggleFav(id) {
-      await fetch(`/api/practices/${id}/favourite`,{method:'PATCH'});
-      loadPractices();
-    }
-
+    async function toggleFav(id) { await fetch(`/api/practices/${id}/favourite`,{method:'PATCH'}); loadPractices(); }
     function openPractice(id, title, type, content, filename) {
       document.getElementById('playerTitle').textContent = title;
       if(type==='text'){
@@ -472,13 +571,12 @@
       document.getElementById('playerOverlay').classList.remove('visible');
     });
 
-    // Sessions
+    // ── Sessions ──
     async function loadSessions() {
       const res  = await fetch('/api/my/profile');
       const data = await res.json();
       renderSessions(data.sessions || []);
     }
-
     function renderSessions(list) {
       const el = document.getElementById('sessionsList');
       if(!list.length){ el.innerHTML='<div class="no-sessions">No sessions recorded yet.</div>'; return; }
