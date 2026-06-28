@@ -474,7 +474,8 @@
   }
 
   async function submitLead() {
-    const name    = document.getElementById('leadName').value.trim();
+    const raw     = document.getElementById('leadName').value.trim();
+    const name    = raw.split(' ')[0].charAt(0).toUpperCase() + raw.split(' ')[0].slice(1).toLowerCase();
     const email   = document.getElementById('leadEmail').value.trim();
     const consent = document.getElementById('leadConsent').checked;
     const errorEl = document.getElementById('leadError');
