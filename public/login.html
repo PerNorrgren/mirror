@@ -108,10 +108,13 @@
           <div style="flex:1;height:1px;background:rgba(255,255,255,0.08)"></div>
         </div>
 
-        <button onclick="enterAsGuest()" style="width:100%;padding:13px;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:none;color:rgba(255,255,255,0.4);font-size:13px;letter-spacing:0.12em;text-transform:uppercase;cursor:pointer;transition:all 0.2s;font-family:'Georgia',serif;" onmouseover="this.style.background='rgba(255,255,255,0.06)';this.style.color='rgba(255,255,255,0.65)'" onmouseout="this.style.background='none';this.style.color='rgba(255,255,255,0.4)'">Continue as guest</button>
+        <a href="/register" style="display:block;width:100%;padding:13px;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:none;color:rgba(255,255,255,0.4);font-size:13px;letter-spacing:0.12em;text-transform:uppercase;cursor:pointer;transition:all 0.2s;font-family:'Georgia',serif;text-align:center;text-decoration:none" onmouseover="this.style.background='rgba(255,255,255,0.06)';this.style.color='rgba(255,255,255,0.65)'" onmouseout="this.style.background='none';this.style.color='rgba(255,255,255,0.4)'">Create account</a>
       </div>
 
-      <div class="footer-note">Deeper Mindfulness · Per Norrgren</div>
+      <div class="footer-note" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Deeper Mindfulness · Per Norrgren</span>
+        <a href="/register" style="color:rgba(180,230,200,0.5);text-decoration:none;font-size:12px">New here?</a>
+      </div>
     </div>
   </div>
 
@@ -164,10 +167,6 @@
       }
     }
 
-    function enterAsGuest() {
-      window.location.href = '/guest/';
-    }
-
     async function doLogin() {
       const email    = document.getElementById('email').value.trim();
       const password = document.getElementById('password').value;
@@ -203,8 +202,15 @@
       }
     }
 
-    function goToRole(role) {
-      const map = { client: '/client/', facilitator: '/facilitator/', admin: '/admin/' };
+    async function goToRole(role) {
+      if (role === 'client') {
+        // Swap session cookie to client role before redirecting
+        const r    = await fetch('/api/switch-to-client', { method: 'POST' });
+        const data = await r.json();
+        if (data.redirect) { window.location.href = data.redirect; return; }
+        if (data.error)    { alert(data.error); return; }
+      }
+      const map = { facilitator: '/facilitator/', admin: '/admin/' };
       window.location.href = map[role] || '/login';
     }
 

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Deeper Mindfulness — Register</title>
+  <style>
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    html, body { width:100%; height:100%; font-family:'Georgia',serif; background:#0a0f0d; display:flex; align-items:center; justify-content:center; }
+
+    .slideshow { position:fixed; inset:0; z-index:0; }
+    .slide { position:absolute; inset:0; background-size:cover; background-position:center; opacity:0; transition:opacity 3s ease-in-out; }
+    .slide.active { opacity:1; }
+    .veil { position:fixed; inset:0; z-index:1; background:rgba(0,0,0,0.5); }
+    .panel { position:relative; z-index:2; width:100%; max-width:400px; padding:20px; }
+
+    .glass {
+      background:rgba(255,255,255,0.07);
+      backdrop-filter:blur(24px); -webkit-backdrop-filter:blur(24px);
+      border:1px solid rgba(255,255,255,0.12);
+      border-radius:20px; padding:36px 32px;
+      display:flex; flex-direction:column; gap:20px;
+    }
+
+    .wordmark { text-align:center; }
+    .wordmark-main { font-size:11px; letter-spacing:0.25em; text-transform:uppercase; color:rgba(255,255,255,0.4); display:block; }
+    .wordmark-sub  { font-size:20px; color:rgba(255,255,255,0.8); display:block; margin-top:6px; }
+    .wordmark-desc { font-size:13px; color:rgba(255,255,255,0.3); display:block; margin-top:8px; line-height:1.6; }
+
+    .field { display:flex; flex-direction:column; gap:6px; }
+    .field label { font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:rgba(255,255,255,0.35); }
+    .field input {
+      background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12);
+      border-radius:10px; padding:12px 14px; font-size:15px;
+      color:rgba(255,255,255,0.85); font-family:'Georgia',serif; outline:none;
+      transition:border-color 0.2s; width:100%;
+    }
+    .field input:focus { border-color:rgba(180,230,200,0.4); }
+    .field input::placeholder { color:rgba(255,255,255,0.2); }
+
+    .consent { display:flex; align-items:flex-start; gap:10px; cursor:pointer; }
+    .consent input[type=checkbox] { margin-top:3px; accent-color:rgba(180,230,200,0.8); flex-shrink:0; width:16px; height:16px; cursor:pointer; }
+    .consent-text { font-size:12px; color:rgba(255,255,255,0.35); line-height:1.6; }
+
+    .error { font-size:13px; color:rgba(255,140,120,0.85); text-align:center; min-height:18px; }
+
+    .submit-btn {
+      width:100%; padding:13px; border-radius:10px;
+      border:1px solid rgba(180,230,200,0.3);
+      background:rgba(180,230,200,0.1);
+      color:rgba(180,230,200,0.85); font-size:13px;
+      letter-spacing:0.12em; text-transform:uppercase;
+      cursor:pointer; transition:all 0.2s; font-family:'Georgia',serif;
+    }
+    .submit-btn:hover { background:rgba(180,230,200,0.18); }
+    .submit-btn:disabled { opacity:0.5; cursor:not-allowed; }
+
+    .footer-note { text-align:center; font-size:12px; color:rgba(255,255,255,0.25); }
+    .footer-note a { color:rgba(180,230,200,0.5); text-decoration:none; }
+    .footer-note a:hover { color:rgba(180,230,200,0.8); }
+  </style>
+</head>
+<body>
+  <div class="slideshow" id="slideshow"></div>
+  <div class="veil"></div>
+
+  <div class="panel">
+    <div class="glass">
+      <div class="wordmark">
+        <span class="wordmark-main">Deeper Mindfulness</span>
+        <span class="wordmark-sub">Create your account</span>
+        <span class="wordmark-desc">Free to register. Your practice space, your pace.</span>
+      </div>
+
+      <div class="field">
+        <label>First name</label>
+        <input type="text" id="name" placeholder="Your first name" autocomplete="given-name"/>
+      </div>
+      <div class="field">
+        <label>Email</label>
+        <input type="email" id="email" placeholder="your@email.com" autocomplete="email"/>
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <div style="position:relative">
+          <input type="password" id="password" placeholder="At least 8 characters" autocomplete="new-password" style="padding-right:44px"/>
+          <button type="button" onclick="togglePw()" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:rgba(255,255,255,0.3);cursor:pointer;padding:4px;display:flex;align-items:center">
+            <svg id="eyeOpen" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg id="eyeClosed" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <label class="consent">
+        <input type="checkbox" id="consent"/>
+        <span class="consent-text">I agree to my name and email being stored by Deeper Mindfulness. I may receive occasional updates from Per — no spam, no third parties.</span>
+      </label>
+
+      <div class="error" id="error"></div>
+      <button class="submit-btn" id="submitBtn">Create account</button>
+
+      <div class="footer-note">
+        Already have an account? <a href="/login">Sign in</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const slides = [
+      'https://images.unsplash.com/photo-1505118380757-91f5f5632de0?w=1600&q=80',
+      'https://images.unsplash.com/photo-1433086966358-54859d0ed716?w=1600&q=80',
+      'https://images.unsplash.com/photo-1501854140801-50d01698950b?w=1600&q=80',
+      'https://images.unsplash.com/photo-1448375240586-882707db888b?w=1600&q=80',
+      'https://images.unsplash.com/photo-1470770841072-f978cf4d019e?w=1600&q=80',
+    ];
+    const ss = document.getElementById('slideshow');
+    const slideEls = slides.map((url, i) => {
+      const d = document.createElement('div');
+      d.className = 'slide' + (i === 0 ? ' active' : '');
+      d.style.backgroundImage = `url('${url}')`;
+      ss.appendChild(d); return d;
+    });
+    let cur = 0;
+    setInterval(() => {
+      slideEls[cur].classList.remove('active');
+      cur = (cur + 1) % slideEls.length;
+      slideEls[cur].classList.add('active');
+    }, 9000);
+
+    function togglePw() {
+      const input = document.getElementById('password');
+      const open  = document.getElementById('eyeOpen');
+      const closed = document.getElementById('eyeClosed');
+      if (input.type === 'password') {
+        input.type = 'text';
+        open.style.display = 'none'; closed.style.display = '';
+      } else {
+        input.type = 'password';
+        open.style.display = ''; closed.style.display = 'none';
+      }
+    }
+
+    // Parse and capitalise first name
+    function parseName(raw) {
+      const first = raw.trim().split(' ')[0];
+      return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
+    }
+
+    async function register() {
+      const rawName  = document.getElementById('name').value.trim();
+      const email    = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const consent  = document.getElementById('consent').checked;
+      const err      = document.getElementById('error');
+      const btn      = document.getElementById('submitBtn');
+
+      if (!rawName)                         { err.textContent = 'Please enter your name.'; return; }
+      if (!email || !email.includes('@'))   { err.textContent = 'Please enter a valid email.'; return; }
+      if (password.length < 8)             { err.textContent = 'Password must be at least 8 characters.'; return; }
+      if (!consent)                         { err.textContent = 'Please tick the consent box to continue.'; return; }
+
+      const name = parseName(rawName);
+
+      btn.disabled = true; btn.textContent = 'Creating account…'; err.textContent = '';
+
+      const res  = await fetch('/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email: email.toLowerCase(), password })
+      });
+      const data = await res.json();
+
+      if (data.redirect) {
+        window.location.href = data.redirect;
+      } else {
+        err.textContent = data.error || 'Something went wrong.';
+        btn.disabled = false; btn.textContent = 'Create account';
+      }
+    }
+
+    document.getElementById('submitBtn').addEventListener('click', register);
+    document.addEventListener('keydown', e => { if (e.key === 'Enter') register(); });
+    document.getElementById('email').addEventListener('keydown', e => {
+      if (e.key === 'Enter') document.getElementById('password').focus();
+    });
+    document.getElementById('name').addEventListener('keydown', e => {
+      if (e.key === 'Enter') document.getElementById('email').focus();
+    });
+  </script>
+</body>
+</html>
