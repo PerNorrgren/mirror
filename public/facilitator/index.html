@@ -275,6 +275,7 @@
       <button onclick="logout()" style="font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:rgba(255,255,255,0.25);background:none;border:1px solid rgba(255,255,255,0.08);padding:5px 10px;border-radius:6px;cursor:pointer">Out</button>
     </div>
     <button class="new-client-btn" id="newClientBtn">+ New Client</button>
+    <button class="new-client-btn" id="mySpaceBtn" style="margin-top:6px;border-color:rgba(255,255,255,0.2);color:rgba(255,255,255,0.5);background:rgba(255,255,255,0.04)" onmouseover="this.style.background='rgba(255,255,255,0.08)'" onmouseout="this.style.background='rgba(255,255,255,0.04)'">My Space</button>
     <div class="client-list" id="clientList"></div>
     <div style="padding:8px 12px"><label style="font-size:11px;color:rgba(255,255,255,0.25);cursor:pointer"><input type="checkbox" id="showArchived" style="margin-right:6px">Show archived</label></div>
     <div class="sidebar-footer">
@@ -363,6 +364,74 @@
           <button class="send-btn" id="sendBtn">↑</button>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- My Space overlay — full client interface for the facilitator -->
+<div id="mySpaceOverlay" style="display:none;position:fixed;inset:0;z-index:150;background:#0a0f0d;flex-direction:column">
+
+  <!-- My Space header -->
+  <div style="padding:14px 20px;border-bottom:1px solid rgba(255,255,255,0.07);display:flex;align-items:center;gap:14px;flex-shrink:0;background:rgba(255,255,255,0.03)">
+    <button onclick="exitMySpace()" style="padding:6px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:none;color:rgba(255,255,255,0.5);font-size:11px;letter-spacing:0.1em;text-transform:uppercase;cursor:pointer;font-family:Georgia,serif;transition:all 0.2s" onmouseover="this.style.background='rgba(255,255,255,0.08)'" onmouseout="this.style.background='none'">← Back to clients</button>
+    <div style="font-size:10px;letter-spacing:0.2em;text-transform:uppercase;color:rgba(255,255,255,0.3)">My Space</div>
+  </div>
+
+  <!-- Slideshow background -->
+  <div id="msSlideshow" style="position:fixed;inset:0;z-index:-1"></div>
+  <div style="position:fixed;inset:0;z-index:-1;background:rgba(0,0,0,0.45)"></div>
+
+  <!-- Client interface panel -->
+  <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto">
+    <div style="width:100%;max-width:500px;background:rgba(255,255,255,0.08);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.13);border-radius:22px;overflow:hidden;display:flex;flex-direction:column;max-height:80vh;position:relative">
+
+      <div style="padding:16px 22px 12px;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0">
+        <div style="font-size:10px;letter-spacing:0.25em;text-transform:uppercase;color:rgba(255,255,255,0.35)">Deeper Mindfulness · My Practice</div>
+      </div>
+
+      <!-- Tabs -->
+      <div style="display:flex;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0">
+        <button class="ms-tab active" id="msTabTalk"     onclick="msSwitchTab('talk')"     style="flex:1;padding:11px;text-align:center;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.85);cursor:pointer;background:none;border:none;border-bottom:1.5px solid rgba(180,230,200,0.6);font-family:Georgia,serif">Talk</button>
+        <button class="ms-tab"        id="msTabSessions" onclick="msSwitchTab('sessions')" style="flex:1;padding:11px;text-align:center;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.35);cursor:pointer;background:none;border:none;border-bottom:1.5px solid transparent;font-family:Georgia,serif">Sessions</button>
+      </div>
+
+      <!-- Talk view -->
+      <div id="msTalkView" style="padding:24px 24px 20px;display:flex;flex-direction:column;align-items:center;gap:20px;flex:1">
+        <div style="width:100%;min-height:80px;display:flex;align-items:center;justify-content:center;text-align:center">
+          <p id="msTranscript" style="font-size:16px;line-height:1.7;color:rgba(255,255,255,0.88);font-style:italic">—</p>
+        </div>
+        <div style="height:22px;display:flex;align-items:center;justify-content:center">
+          <div id="msWave" style="display:none;gap:4px;align-items:flex-end;height:20px">
+            <span style="display:block;width:3px;border-radius:2px;background:rgba(180,230,200,0.7);height:8px;animation:wv 1.1s ease-in-out infinite 0s"></span>
+            <span style="display:block;width:3px;border-radius:2px;background:rgba(180,230,200,0.7);height:14px;animation:wv 1.1s ease-in-out infinite 0.15s"></span>
+            <span style="display:block;width:3px;border-radius:2px;background:rgba(180,230,200,0.7);height:20px;animation:wv 1.1s ease-in-out infinite 0.3s"></span>
+            <span style="display:block;width:3px;border-radius:2px;background:rgba(180,230,200,0.7);height:14px;animation:wv 1.1s ease-in-out infinite 0.45s"></span>
+            <span style="display:block;width:3px;border-radius:2px;background:rgba(180,230,200,0.7);height:8px;animation:wv 1.1s ease-in-out infinite 0.6s"></span>
+          </div>
+          <div id="msThinking" style="display:none;align-items:center;gap:8px;padding:10px 14px;background:rgba(180,230,200,0.06);border:1px solid rgba(180,230,200,0.12);border-radius:10px">
+            <div style="display:flex;gap:4px">
+              <span style="width:5px;height:5px;border-radius:50%;background:rgba(180,230,200,0.4);animation:db 1.2s ease-in-out infinite 0s;display:block"></span>
+              <span style="width:5px;height:5px;border-radius:50%;background:rgba(180,230,200,0.4);animation:db 1.2s ease-in-out infinite 0.2s;display:block"></span>
+              <span style="width:5px;height:5px;border-radius:50%;background:rgba(180,230,200,0.4);animation:db 1.2s ease-in-out infinite 0.4s;display:block"></span>
+            </div>
+            <div style="font-size:12px;color:rgba(180,230,200,0.5);letter-spacing:0.08em">thinking</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+          <button id="msMicBtn" style="width:68px;height:68px;border-radius:50%;border:1.5px solid rgba(255,255,255,0.22);background:rgba(255,255,255,0.06);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.25s ease;outline:none">
+            <svg viewBox="0 0 24 24" style="width:26px;height:26px;fill:rgba(255,255,255,0.65)"><path d="M12 1a4 4 0 0 1 4 4v7a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4zm0 2a2 2 0 0 0-2 2v7a2 2 0 0 0 4 0V5a2 2 0 0 0-2-2zm-7 9a1 1 0 0 1 1 1 6 6 0 0 0 12 0 1 1 0 0 1 2 0 8 8 0 0 1-7 7.938V23h3a1 1 0 0 1 0 2H8a1 1 0 0 1 0-2h3v-2.062A8 8 0 0 1 4 13a1 1 0 0 1 1-1z"/></svg>
+          </button>
+        </div>
+        <div id="msStatus" style="font-size:11px;letter-spacing:0.1em;color:rgba(255,255,255,0.25);text-transform:uppercase;height:14px"></div>
+      </div>
+
+      <!-- Sessions view -->
+      <div id="msSessionsView" style="display:none;flex-direction:column;overflow:hidden">
+        <div style="overflow-y:auto;flex:1;padding:14px 18px;max-height:400px" id="msSessionsList">
+          <div style="text-align:center;padding:32px 20px;color:rgba(255,255,255,0.3);font-size:14px;font-style:italic">No sessions yet.</div>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -855,6 +924,271 @@
 
   // ── Init ──
   loadClients();
+
+  // ── My Space ──
+  let msClientId     = null;
+  let msSessionId    = Math.random().toString(36).slice(2);
+  let msBusy         = false;
+  let msIsSpeaking   = false;
+  let msMicActive    = false;
+  let msCurrentAudio = null;
+  let msMediaStream  = null;
+  let msAudioCtx     = null;
+  let msProcessor    = null;
+  let msDeepgramWs   = null;
+  let msAccumulated  = '';
+
+  // Slideshow for My Space
+  const msSlides = [
+    'https://images.unsplash.com/photo-1505118380757-91f5f5632de0?w=1600&q=80',
+    'https://images.unsplash.com/photo-1433086966358-54859d0ed716?w=1600&q=80',
+    'https://images.unsplash.com/photo-1501854140801-50d01698950b?w=1600&q=80',
+    'https://images.unsplash.com/photo-1448375240586-882707db888b?w=1600&q=80',
+  ];
+  let msSlideCur = 0;
+  let msSlidEls  = [];
+
+  function initMsSlideshow() {
+    const ss = document.getElementById('msSlideshow');
+    ss.innerHTML = '';
+    msSlidEls = msSlides.map((url, i) => {
+      const d = document.createElement('div');
+      d.style.cssText = `position:absolute;inset:0;background-size:cover;background-position:center;opacity:${i===0?1:0};transition:opacity 3s ease-in-out;background-image:url('${url}')`;
+      ss.appendChild(d); return d;
+    });
+    setInterval(() => {
+      msSlidEls[msSlideCur].style.opacity = 0;
+      msSlideCur = (msSlideCur + 1) % msSlidEls.length;
+      msSlidEls[msSlideCur].style.opacity = 1;
+    }, 9000);
+  }
+
+  function msSwitchTab(tab) {
+    document.getElementById('msTalkView').style.display     = tab === 'talk'     ? 'flex' : 'none';
+    document.getElementById('msSessionsView').style.display = tab === 'sessions' ? 'flex' : 'none';
+    document.getElementById('msTabTalk').style.color        = tab === 'talk'     ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.35)';
+    document.getElementById('msTabTalk').style.borderBottom = tab === 'talk'     ? '1.5px solid rgba(180,230,200,0.6)' : '1.5px solid transparent';
+    document.getElementById('msTabSessions').style.color        = tab === 'sessions' ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.35)';
+    document.getElementById('msTabSessions').style.borderBottom = tab === 'sessions' ? '1.5px solid rgba(180,230,200,0.6)' : '1.5px solid transparent';
+    if (tab === 'sessions') loadMsSessions();
+  }
+
+  async function loadMsSessions() {
+    if (!msClientId) return;
+    const res  = await fetch('/api/my/profile');
+    const data = await res.json();
+    const list = data.sessions || [];
+    const el   = document.getElementById('msSessionsList');
+    if (!list.length) { el.innerHTML = '<div style="text-align:center;padding:32px 20px;color:rgba(255,255,255,0.3);font-size:14px;font-style:italic">No sessions yet.</div>'; return; }
+    el.innerHTML = list.map(s => `
+      <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:14px;margin-bottom:8px">
+        <div style="font-size:11px;color:rgba(255,255,255,0.3);margin-bottom:6px">${s.created_at?.slice(0,10)||''}</div>
+        <div style="font-size:13px;color:rgba(255,255,255,0.65);line-height:1.65">${s.client_summary||'Session recorded.'}</div>
+      </div>
+    `).join('');
+  }
+
+  function mssSetState(s) {
+    const wave     = document.getElementById('msWave');
+    const thinking = document.getElementById('msThinking');
+    const micBtn   = document.getElementById('msMicBtn');
+    const status   = document.getElementById('msStatus');
+    wave.style.display     = 'none';
+    thinking.style.display = 'none';
+    micBtn.style.background      = 'rgba(255,255,255,0.06)';
+    micBtn.style.borderColor     = 'rgba(255,255,255,0.22)';
+    micBtn.querySelector('svg').style.fill = 'rgba(255,255,255,0.65)';
+    if (s === 'listening') {
+      micBtn.style.background  = 'rgba(180,230,200,0.13)';
+      micBtn.style.borderColor = 'rgba(180,230,200,0.5)';
+      micBtn.querySelector('svg').style.fill = 'rgba(180,230,200,0.9)';
+      status.textContent = 'listening';
+    } else if (s === 'speaking') {
+      wave.style.display = 'flex';
+      status.textContent = '';
+    } else if (s === 'processing') {
+      thinking.style.display = 'flex';
+      status.textContent = '';
+    } else {
+      status.textContent = '';
+    }
+  }
+
+  async function msSpeak(text) {
+    return new Promise(async (resolve) => {
+      try {
+        msIsSpeaking = true;
+        mssSetState('speaking');
+        msAccumulated = '';
+        document.getElementById('msTranscript').className = '';
+
+        const r = await fetch('/api/speak', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text })
+        });
+        if (!r.ok) throw new Error('speak failed');
+
+        const buffer = await r.arrayBuffer();
+        const blob   = new Blob([buffer], { type: 'audio/mpeg' });
+        const url    = URL.createObjectURL(blob);
+        if (msCurrentAudio) { msCurrentAudio.pause(); msCurrentAudio = null; }
+        msCurrentAudio = new Audio(url);
+
+        msCurrentAudio.onended = () => {
+          URL.revokeObjectURL(url);
+          msCurrentAudio = null;
+          msIsSpeaking = false;
+          mssSetState('');
+          setTimeout(() => {
+            document.getElementById('msStatus').textContent = 'listening';
+            if (!msMicActive) msStartListening();
+          }, 600);
+          resolve();
+        };
+        msCurrentAudio.onerror = () => { msIsSpeaking = false; resolve(); };
+        await msCurrentAudio.play();
+      } catch(e) {
+        msIsSpeaking = false;
+        resolve();
+      }
+    });
+  }
+
+  async function msSendToBot(userMsg) {
+    if (msBusy) return;
+    msBusy = true;
+    mssSetState('processing');
+    const message = (userMsg && userMsg !== '[START]') ? userMsg : 'begin';
+    try {
+      const r = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, sessionId: msSessionId, clientId: msClientId })
+      });
+      const data  = await r.json();
+      const reply = data.reply || '';
+      if (reply) {
+        document.getElementById('msTranscript').textContent = reply;
+        document.getElementById('msTranscript').style.fontStyle = 'italic';
+        msBusy = false;
+        await msSpeak(reply);
+      } else {
+        msBusy = false;
+        mssSetState('');
+      }
+    } catch(e) {
+      msBusy = false;
+      mssSetState('');
+    }
+  }
+
+  async function msStartListening() {
+    if (msMicActive) return;
+    try {
+      msMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      msAudioCtx = new AudioContext({ sampleRate: 16000 });
+      const source = msAudioCtx.createMediaStreamSource(msMediaStream);
+      const listenUrl = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/listen';
+      msDeepgramWs = new WebSocket(listenUrl);
+
+      msDeepgramWs.onopen = () => {
+        msMicActive = true;
+        mssSetState('listening');
+        msProcessor = msAudioCtx.createScriptProcessor(4096, 1, 1);
+        source.connect(msProcessor);
+        msProcessor.connect(msAudioCtx.destination);
+        msProcessor.onaudioprocess = (e) => {
+          if (msIsSpeaking || !msDeepgramWs || msDeepgramWs.readyState !== WebSocket.OPEN) return;
+          const input = e.inputBuffer.getChannelData(0);
+          const pcm16 = new Int16Array(input.length);
+          for (let i = 0; i < input.length; i++) pcm16[i] = Math.max(-32768, Math.min(32767, input[i] * 32768));
+          msDeepgramWs.send(pcm16.buffer);
+        };
+      };
+
+      msDeepgramWs.onmessage = (event) => {
+        if (msIsSpeaking || msBusy) return;
+        try {
+          const data = JSON.parse(event.data);
+          const txt  = data?.channel?.alternatives?.[0]?.transcript?.trim();
+          if (data.is_final && txt) {
+            msAccumulated = (msAccumulated + ' ' + txt).trim();
+            document.getElementById('msTranscript').textContent = msAccumulated;
+            document.getElementById('msTranscript').style.opacity = '0.5';
+          } else if (!data.is_final && txt) {
+            document.getElementById('msTranscript').textContent = (msAccumulated + ' ' + txt).trim();
+          }
+          if (data.speech_final && msAccumulated) {
+            const t = msAccumulated; msAccumulated = '';
+            document.getElementById('msTranscript').textContent = t;
+            document.getElementById('msTranscript').style.opacity = '1';
+            msSendToBot(t);
+          }
+          if (data.type === 'UtteranceEnd' && msAccumulated) {
+            const t = msAccumulated; msAccumulated = '';
+            document.getElementById('msTranscript').textContent = t;
+            msSendToBot(t);
+          }
+        } catch(e) {}
+      };
+
+      msDeepgramWs.onerror = () => { msMicActive = false; setTimeout(msStartListening, 2000); };
+      msDeepgramWs.onclose = () => { msMicActive = false; if (!msIsSpeaking) setTimeout(msStartListening, 1000); };
+    } catch(e) {
+      document.getElementById('msStatus').textContent = 'mic not available';
+    }
+  }
+
+  function msStopListening() {
+    msProcessor?.disconnect(); msProcessor = null;
+    msAudioCtx?.close(); msAudioCtx = null;
+    msMediaStream?.getTracks().forEach(t => t.stop()); msMediaStream = null;
+    msDeepgramWs?.close(); msDeepgramWs = null;
+    msMicActive = false;
+  }
+
+  // Mic toggle
+  document.getElementById('msMicBtn').addEventListener('click', () => {
+    if (msMicActive) { msStopListening(); mssSetState(''); }
+    else msStartListening();
+  });
+
+  async function enterMySpace() {
+    // Get or create system client record for this facilitator
+    const r    = await fetch('/api/my-space', { method: 'POST' });
+    const data = await r.json();
+    if (data.error) { alert('Could not open My Space: ' + data.error); return; }
+    msClientId  = data.clientId;
+    msSessionId = Math.random().toString(36).slice(2); // fresh session
+
+    // Show overlay
+    document.getElementById('mySpaceOverlay').style.display = 'flex';
+    initMsSlideshow();
+
+    // Start bot
+    mssSetState('processing');
+    await msStartListening();
+    await msSendToBot('[START]');
+  }
+
+  function exitMySpace() {
+    // Stop audio and mic
+    if (msCurrentAudio) { msCurrentAudio.pause(); msCurrentAudio = null; }
+    msStopListening();
+    msIsSpeaking = false;
+    msBusy = false;
+
+    // Reset state
+    document.getElementById('msTranscript').textContent = '—';
+    mssSetState('');
+    msSwitchTab('talk');
+
+    // Hide overlay
+    document.getElementById('mySpaceOverlay').style.display = 'none';
+  }
+
+  document.getElementById('mySpaceBtn').addEventListener('click', enterMySpace);
 </script>
 
 <!-- Change Password Modal -->
