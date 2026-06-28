@@ -471,7 +471,7 @@ wss.on('connection', (ws, req) => {
       }
 
       const greeting = await callClaude(systemPrompt, [
-        { role: 'user', content: '[Client has just arrived. Offer your opening — one or two sentences only. Receive them.]' }
+        { role: 'user', content: '[Client has just arrived. Ask them one simple direct question about how they are right now. No preamble, no receiving phrases, no "you are here" openers. Just the question.]' }
       ], 120);
 
       conversationHistory.push({ role: 'assistant', content: greeting });
