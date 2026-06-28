@@ -466,6 +466,19 @@ app.get('/api/admin/guest-leads', auth.requireAuthApi(['admin']), (req, res) => 
   res.json(db.getGuestLeads());
 });
 
+// ── Admin user management ──
+app.patch('/api/admin/users/:id/assign-facilitator', auth.requireAuthApi(['admin']), (req, res) => {
+  const { facilitatorId } = req.body;
+  db.markAsClient(req.params.id, facilitatorId);
+  res.json({ ok: true });
+});
+
+// ── Guest lead delete ──
+app.delete('/api/admin/guest-leads/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  db.deleteGuestLead(req.params.id);
+  res.json({ ok: true });
+});
+
 // ── /api/guest/chat — no auth, same bot, lighter system prompt ──
 const guestSessions = new Map();
 

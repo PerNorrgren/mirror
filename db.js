@@ -625,6 +625,10 @@ function addGuestLead(id, name, email, source) {
 function getGuestLeads() {
   return queryAll('SELECT * FROM guest_leads ORDER BY created_at DESC');
 }
+function deleteGuestLead(id) {
+  getDbSync().run('DELETE FROM guest_leads WHERE id=?', [id]);
+  save();
+}
 
 module.exports = {
   getDb, save,
@@ -666,5 +670,5 @@ module.exports = {
   // System client
   markAsSystemClient,
   // Guest leads
-  addGuestLead, getGuestLeads,
+  addGuestLead, getGuestLeads, deleteGuestLead,
 };
