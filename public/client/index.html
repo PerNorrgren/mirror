@@ -252,6 +252,14 @@
   // ── Session ID ──
   const sessionId = Math.random().toString(36).slice(2);
 
+  // ── Invitation notice ──
+  const urlParams = new URLSearchParams(location.search);
+  if (urlParams.get('notice') === 'invitation_accepted') {
+    const t = document.getElementById('transcript');
+    t.textContent = 'Welcome. Your invitation has been accepted.';
+    t.className = 'transcript-text';
+  }
+
   // ── Slideshow ──
   const slides = [
     'https://images.unsplash.com/photo-1505118380757-91f5f5632de0?w=1600&q=80',
