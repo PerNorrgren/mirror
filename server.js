@@ -189,6 +189,16 @@ app.post('/api/register', async (req, res) => {
     const hash = await auth.hashPassword(password);
     db.registerUser(id, name.trim(), emailLower, hash);
 
+    // If there's a pending invitation, link them to the facilitator
+    const { inviteToken } = req.body;
+    if (inviteToken) {
+      const inv = db.getInvitationByToken(inviteToken);
+      if (inv && !inv.accepted_at && new Date(inv.expires_at) > new Date() && inv.email === emailLower) {
+        db.markAsClient(id, inv.facilitator_id);
+        db.acceptInvitation(inviteToken, new Date().toISOString());
+      }
+    }
+
     // Log them in immediately
     const token = auth.createToken({ role: 'client', id, name: name.trim(), email: emailLower });
     res.cookie(auth.COOKIE_NAME, token, auth.COOKIE_OPTIONS);
@@ -476,6 +486,83 @@ app.patch('/api/clients/:id', auth.requireAuthApi(['admin','facilitator']), (req
 app.delete('/api/clients/:id', auth.requireAuthApi(['admin']), (req, res) => {
   db.deleteClient(req.params.id);
   res.json({ ok: true });
+});
+
+// ── Invitation flow ──
+const crypto = require('crypto');
+
+// Send invitation — facilitator invites a user by email
+app.post('/api/invitations', auth.requireAuthApi(['facilitator','admin']), async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email || !email.includes('@')) return res.status(400).json({ error: 'Valid email required.' });
+
+    const fac      = db.getFacilitatorById(req.user.id);
+    if (!fac) return res.status(404).json({ error: 'Facilitator not found.' });
+
+    const emailLower = email.toLowerCase().trim();
+    const token      = crypto.randomBytes(32).toString('hex');
+    const id         = uuidv4();
+    const expiresAt  = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
+
+    db.createInvitation(id, token, req.user.id, emailLower, expiresAt);
+
+    const inviteUrl = `${APP_URL}/invite/${token}`;
+    const existing  = db.getClientByEmail(emailLower);
+    const isKnown   = !!existing;
+
+    await sendEmail(emailLower,
+      `${fac.name} has invited you to Deeper Mindfulness`,
+      `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
+        <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">Deeper Mindfulness</div>
+        <h1 style="font-size:22px;font-weight:normal;color:#1a1a1a;margin-bottom:16px">You've been invited</h1>
+        <p style="font-size:15px;line-height:1.7;color:#444;margin-bottom:24px">
+          ${fac.name} has invited you to work together on Deeper Mindfulness — a body-based practice companion.
+        </p>
+        <a href="${inviteUrl}" style="display:inline-block;padding:14px 28px;background:#2d6a4f;color:#fff;text-decoration:none;border-radius:8px;font-size:14px;letter-spacing:0.05em">
+          ${isKnown ? 'Accept invitation' : 'Create your account'}
+        </a>
+        <p style="font-size:13px;color:#888;margin-top:24px;line-height:1.6">
+          This invitation expires in 7 days. If you didn't expect this, you can ignore it.
+        </p>
+        <hr style="border:none;border-top:1px solid #e0e0e0;margin:28px 0"/>
+        <div style="font-size:12px;color:#aaa">Deeper Mindfulness · Per Norrgren</div>
+      </div>`
+    );
+
+    res.json({ ok: true, isKnown });
+  } catch(e) {
+    console.error('invitation error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Accept invitation — handles the /invite/:token link
+app.get('/invite/:token', async (req, res) => {
+  try {
+    const inv = db.getInvitationByToken(req.params.token);
+    if (!inv) return res.redirect('/login?error=invalid_invite');
+    if (inv.accepted_at) return res.redirect('/client/?notice=already_accepted');
+    if (new Date(inv.expires_at) < new Date()) return res.redirect('/login?error=expired_invite');
+
+    // Check if user is already registered
+    const existing = db.getClientByEmail(inv.email);
+    if (existing) {
+      // Link them to facilitator and mark as client
+      db.markAsClient(existing.id, inv.facilitator_id);
+      db.acceptInvitation(inv.token, new Date().toISOString());
+      // Log them in as client
+      const token = auth.createToken({ role: 'client', id: existing.id, name: existing.name, email: existing.email });
+      res.cookie(auth.COOKIE_NAME, token, auth.COOKIE_OPTIONS);
+      return res.redirect('/client/?notice=invitation_accepted');
+    }
+
+    // Not registered — redirect to register page with token
+    res.redirect(`/register?invite=${req.params.token}&email=${encodeURIComponent(inv.email)}`);
+  } catch(e) {
+    console.error('invite accept error:', e);
+    res.redirect('/login?error=invite_error');
+  }
 });
 
 // ── Guest lead convert to registered ──

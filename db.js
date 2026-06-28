@@ -171,7 +171,18 @@ async function getDb() {
   )`);
 
   // ── Content play history ──
-  db.run(`CREATE TABLE IF NOT EXISTS guest_leads (
+  db.run(`CREATE TABLE IF NOT EXISTS invitations (
+    id TEXT PRIMARY KEY,
+    token TEXT UNIQUE NOT NULL,
+    facilitator_id TEXT NOT NULL,
+    email TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    expires_at TEXT NOT NULL,
+    accepted_at TEXT,
+    FOREIGN KEY (facilitator_id) REFERENCES facilitators(id)
+  )\`);
+
+  db.run(\`CREATE TABLE IF NOT EXISTS guest_leads (
     id TEXT PRIMARY KEY,
     name TEXT,
     email TEXT,
@@ -614,6 +625,25 @@ function getAllLibraryFilesWithAccess(userFlags) {
   }));
 }
 
+// ── Invitations ──
+function createInvitation(id, token, facilitatorId, email, expiresAt) {
+  getDbSync().run(
+    'INSERT INTO invitations (id,token,facilitator_id,email,expires_at) VALUES (?,?,?,?,?)',
+    [id, token, facilitatorId, email.toLowerCase(), expiresAt]
+  );
+  save();
+}
+function getInvitationByToken(token) {
+  return queryOne('SELECT * FROM invitations WHERE token=?', [token]);
+}
+function acceptInvitation(token, acceptedAt) {
+  getDbSync().run('UPDATE invitations SET accepted_at=? WHERE token=?', [acceptedAt, token]);
+  save();
+}
+function getInvitationsForFacilitator(facilitatorId) {
+  return queryAll('SELECT * FROM invitations WHERE facilitator_id=? ORDER BY created_at DESC', [facilitatorId]);
+}
+
 // ── Guest leads ──
 function addGuestLead(id, name, email, source) {
   getDbSync().run(
@@ -681,6 +711,8 @@ module.exports = {
   getLibraryFilesForUser, getAllLibraryFilesWithAccess,
   // System client
   markAsSystemClient,
+  // Invitations
+  createInvitation, getInvitationByToken, acceptInvitation, getInvitationsForFacilitator,
   // Guest leads
   addGuestLead, getGuestLeads, deleteGuestLead, getGuestLead,
   // Client management
