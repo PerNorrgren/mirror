@@ -328,6 +328,10 @@ app.post('/api/chat', auth.requireAuthApi(['client']), async (req, res) => {
         const sessions = db.getSessionsForClient(cId);
         const arc      = client?.arc || '';
         if (arc || sessions.length > 0) sp += prompts.CLIENT_ARC_PREFIX(arc, sessions.length);
+        // Adaptive context — programme/track awareness
+        if (client?.programme || sessions.length > 0) {
+          sp += prompts.CLIENT_ADAPTIVE_CONTEXT(client?.programme, client?.track, sessions.length);
+        }
       }
       session.systemPrompt = sp;
     }
@@ -354,8 +358,40 @@ app.post('/api/chat', auth.requireAuthApi(['client']), async (req, res) => {
   }
 });
 
+// ── /api/guest/chat — no auth, same bot, lighter system prompt ──
+const guestSessions = new Map();
+
+app.post('/api/guest/chat', async (req, res) => {
+  try {
+    const { message, sessionId } = req.body;
+    if (!guestSessions.has(sessionId)) {
+      guestSessions.set(sessionId, { history: [], systemPrompt: prompts.CLIENT_SYSTEM_PROMPT });
+    }
+    const session = guestSessions.get(sessionId);
+    const isStart = !message || message === 'begin';
+    if (!isStart) session.history.push({ role: 'user', content: message });
+    const messages = session.history.length ? session.history : [{ role: 'user', content: 'begin' }];
+    const reply = await callClaude(session.systemPrompt, messages, 400);
+    session.history.push({ role: 'assistant', content: reply });
+    res.json({ reply });
+  } catch(e) {
+    console.error('guest chat error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── /api/guest/content — returns all content, visibility flagged ──
+app.get('/api/guest/content', async (req, res) => {
+  try {
+    const files = db.getLibraryFiles({});
+    res.json(files.map(f => ({ ...f, accessible: f.visibility === 'guest' })));
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── /api/speak — ElevenLabs, piped directly (Mare Bot architecture) ──
-app.post('/api/speak', auth.requireAuthApi(['client', 'facilitator', 'admin']), async (req, res) => {
+app.post('/api/speak', async (req, res) => { // public — used by guest and client
   try {
     const { text } = req.body;
     if (!text) return res.status(400).json({ error: 'No text' });
@@ -506,6 +542,10 @@ app.get('/uploads/:filename', (req, res) => {
   if (!user) return res.redirect('/login');
   res.sendFile(path.join(__dirname, 'uploads', req.params.filename));
 });
+
+// ── Guest routes ──
+app.get('/guest',  (req, res) => res.sendFile(path.join(__dirname, 'public', 'guest', 'index.html')));
+app.get('/guest/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'guest', 'index.html')));
 
 // ── Start ──
 (async () => {
