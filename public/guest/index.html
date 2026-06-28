@@ -130,8 +130,7 @@
   .welcome-privacy { font-size:11px; color:rgba(255,255,255,0.2); text-align:center; line-height:1.6; }
   .welcome-submit { width:100%; padding:13px; border-radius:10px; border:1px solid rgba(180,230,200,0.3); background:rgba(180,230,200,0.1); color:rgba(180,230,200,0.85); font-size:13px; letter-spacing:0.12em; text-transform:uppercase; cursor:pointer; transition:all 0.2s; font-family:'Georgia',serif; }
   .welcome-submit:hover { background:rgba(180,230,200,0.18); }
-  .welcome-skip { text-align:center; font-size:12px; color:rgba(255,255,255,0.2); cursor:pointer; letter-spacing:0.05em; }
-  .welcome-skip:hover { color:rgba(255,255,255,0.45); }
+  .welcome-error { font-size:12px; color:rgba(255,120,100,0.8); min-height:16px; text-align:center; }
   </style>
 </head>
 <body>
@@ -140,7 +139,7 @@
   <div id="start-inner">
     <h1>Deeper Mindfulness</h1>
     <p>A body-based guide is here.<br>Tap when you're ready.</p>
-    <button id="start-btn" onclick="begin()">Begin</button>
+    <button id="start-btn" onclick="showWelcomeModal()">Begin</button>
   </div>
 </div>
 
@@ -409,13 +408,7 @@
     }
   }
 
-  // ── Begin ──
-  async function begin() {
-    document.getElementById('start').style.display = 'none';
-    setState('processing');
-    await startListening();
-    await sendToBot('[START]');
-  }
+  // begin() now handled by submitLead() after consent
 
   // ── Mic toggle ──
   micBtn.addEventListener('click', () => {
@@ -473,15 +466,28 @@
     }
   }
   // ── Guest lead modal ──
+  // Shown immediately on Begin tap — page stays locked until submitted.
   function showWelcomeModal() {
-    if (!sessionStorage.getItem('leadDismissed')) {
-      document.getElementById('welcomeModal').classList.add('visible');
-    }
+    document.getElementById('start').style.display = 'none';
+    document.getElementById('welcomeModal').classList.add('visible');
+    setTimeout(() => document.getElementById('leadName').focus(), 300);
   }
 
   async function submitLead() {
-    const name  = document.getElementById('leadName').value.trim();
-    const email = document.getElementById('leadEmail').value.trim();
+    const name    = document.getElementById('leadName').value.trim();
+    const email   = document.getElementById('leadEmail').value.trim();
+    const consent = document.getElementById('leadConsent').checked;
+    const errorEl = document.getElementById('leadError');
+
+    if (!name)    { errorEl.textContent = 'Please enter your name.'; return; }
+    if (!email || !email.includes('@')) { errorEl.textContent = 'Please enter a valid email.'; return; }
+    if (!consent) { errorEl.textContent = 'Please tick the consent box to continue.'; return; }
+
+    errorEl.textContent = '';
+    const btn = document.querySelector('.welcome-submit');
+    btn.disabled = true;
+    btn.textContent = 'Starting…';
+
     try {
       await fetch('/api/guest/lead', {
         method: 'POST',
@@ -489,34 +495,41 @@
         body: JSON.stringify({ name, email })
       });
     } catch(e) {}
-    dismissLead();
-  }
 
-  function dismissLead() {
-    sessionStorage.setItem('leadDismissed', '1');
     document.getElementById('welcomeModal').classList.remove('visible');
+    // Now start the bot
+    setState('processing');
+    await startListening();
+    await sendToBot('[START]');
   }
 
-  // Show 8 seconds after page load
-  setTimeout(showWelcomeModal, 8000);
+  // Allow Enter key to submit
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && document.getElementById('welcomeModal').classList.contains('visible')) {
+      submitLead();
+    }
+  });
 
 </script>
-<!-- Welcome / lead capture modal -->
+<!-- Welcome / lead capture modal — shown before anything else -->
 <div class="welcome-modal" id="welcomeModal">
   <div class="welcome-inner">
     <h3>Welcome</h3>
-    <p>You're exploring Deeper Mindfulness. If you'd like to stay in touch — occasional newsletter, nothing else — leave your name and email.</p>
+    <p>Before we begin, we'd like to know a little about you. We'll send you the occasional update from Per — nothing else.</p>
     <div class="welcome-field">
-      <label>Your name</label>
+      <label>Your name <span style="color:rgba(255,120,100,0.7)">*</span></label>
       <input type="text" id="leadName" placeholder="First name is fine"/>
     </div>
     <div class="welcome-field">
-      <label>Email</label>
+      <label>Email <span style="color:rgba(255,120,100,0.7)">*</span></label>
       <input type="email" id="leadEmail" placeholder="your@email.com"/>
     </div>
-    <div class="welcome-privacy">No spam. No selling your details. Just the occasional update from Per.</div>
-    <button class="welcome-submit" onclick="submitLead()">Stay in touch</button>
-    <div class="welcome-skip" onclick="dismissLead()">Just exploring for now</div>
+    <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;padding:2px 0">
+      <input type="checkbox" id="leadConsent" style="margin-top:3px;accent-color:rgba(180,230,200,0.8);flex-shrink:0;width:16px;height:16px;cursor:pointer"/>
+      <span style="font-size:12px;color:rgba(255,255,255,0.35);line-height:1.6">I agree to my name and email being stored by Deeper Mindfulness and to receiving occasional newsletters. No spam, no third parties. <span style="color:rgba(255,120,100,0.7)">*</span></span>
+    </label>
+    <div class="welcome-error" id="leadError"></div>
+    <button class="welcome-submit" onclick="submitLead()">Continue</button>
   </div>
 </div>
 
