@@ -472,6 +472,34 @@
       document.getElementById('playerOverlay').classList.add('visible');
     }
   }
+  // ── Guest lead modal ──
+  function showWelcomeModal() {
+    if (!sessionStorage.getItem('leadDismissed')) {
+      document.getElementById('welcomeModal').classList.add('visible');
+    }
+  }
+
+  async function submitLead() {
+    const name  = document.getElementById('leadName').value.trim();
+    const email = document.getElementById('leadEmail').value.trim();
+    try {
+      await fetch('/api/guest/lead', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email })
+      });
+    } catch(e) {}
+    dismissLead();
+  }
+
+  function dismissLead() {
+    sessionStorage.setItem('leadDismissed', '1');
+    document.getElementById('welcomeModal').classList.remove('visible');
+  }
+
+  // Show 8 seconds after page load
+  setTimeout(showWelcomeModal, 8000);
+
 </script>
 <!-- Welcome / lead capture modal -->
 <div class="welcome-modal" id="welcomeModal">
