@@ -108,7 +108,7 @@
       <div class="section-label">Facilitators</div>
       <div class="card">
         <div class="card-header">
-          <div class="card-title">All facilitators</div>
+          <div class="card-title">Facilitators</div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <label class="show-archived-wrap"><input type="checkbox" id="showArchivedFac" onchange="loadFacilitators()"/> Show archived</label>
             <button class="btn sm disabled" id="facEditBtn" onclick="editSelectedFac()">Edit</button>
@@ -127,7 +127,7 @@
       <div class="section-label">All clients</div>
       <div class="card">
         <div class="card-header">
-          <div class="card-title">All clients across facilitators</div>
+          <div class="card-title">Clients</div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <label class="show-archived-wrap"><input type="checkbox" id="showArchivedClients" onchange="loadClients()"/> Show archived</label>
             <button class="btn sm disabled" id="clientEditBtn" onclick="editSelectedClient()">Edit</button>
@@ -144,10 +144,10 @@
 
     <!-- Users — self-registered -->
     <div>
-      <div class="section-label">Registered users</div>
+      <div class="section-label">Users</div>
       <div class="card">
         <div class="card-header">
-          <div class="card-title">Self-registered accounts</div>
+          <div class="card-title">Users</div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <button class="btn sm disabled" id="userUpgradeBtn" onclick="upgradeSelected()">Upgrade</button>
             <button class="btn sm danger disabled" id="userDelBtn" onclick="deleteSelectedUsers()">Delete</button>
@@ -160,10 +160,10 @@
 
     <!-- Guest Leads -->
     <div>
-      <div class="section-label">Guest leads</div>
+      <div class="section-label">Leads</div>
       <div class="card">
         <div class="card-header">
-          <div class="card-title">Captured emails</div>
+          <div class="card-title">Leads</div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <button class="btn sm disabled" id="leadUpgradeBtn" onclick="upgradeSelectedLeads()">Convert</button>
             <button class="btn sm primary disabled" id="leadSyncBtn" onclick="syncLeads()">Sync to Brevo</button>
@@ -456,7 +456,7 @@
   function confirmAction() { closeModal('confirmModal'); if (_confirmFn) _confirmFn(); _confirmFn = null; }
 
   // ══════════════════════════════════════════
-  // ── FACILITATORS ──
+  // ── Facilitators ──
   // ══════════════════════════════════════════
   let _facData = [];
   const facSel = makeSelection(['facEditBtn','facArchBtn','facDelBtn'], 'facEditBtn');
