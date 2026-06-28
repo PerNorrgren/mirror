@@ -90,7 +90,14 @@
         </div>
         <div class="error" id="error"></div>
         <button class="submit-btn" id="submitBtn">Sign in</button>
-        <!-- Guest button — coming soon -->
+
+        <div style="display:flex;align-items:center;gap:12px;margin-top:4px">
+          <div style="flex:1;height:1px;background:rgba(255,255,255,0.08)"></div>
+          <span style="font-size:11px;color:rgba(255,255,255,0.2);letter-spacing:0.08em">or</span>
+          <div style="flex:1;height:1px;background:rgba(255,255,255,0.08)"></div>
+        </div>
+
+        <button onclick="enterAsGuest()" style="width:100%;padding:13px;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:none;color:rgba(255,255,255,0.4);font-size:13px;letter-spacing:0.12em;text-transform:uppercase;cursor:pointer;transition:all 0.2s;font-family:'Georgia',serif;" onmouseover="this.style.background='rgba(255,255,255,0.06)';this.style.color='rgba(255,255,255,0.65)'" onmouseout="this.style.background='none';this.style.color='rgba(255,255,255,0.4)'">Continue as guest</button>
       </div>
 
       <div class="footer-note">Deeper Mindfulness · Per Norrgren</div>
