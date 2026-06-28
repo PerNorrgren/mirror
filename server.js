@@ -147,6 +147,15 @@ app.post('/api/login', async (req, res) => {
   const token = auth.createToken(user);
   res.cookie(auth.COOKIE_NAME, token, auth.COOKIE_OPTIONS);
   if (user.mustChangePassword) return res.json({ redirect: '/change-password' });
+
+  // Check if facilitator/admin also has a client record — show role chooser
+  if (user.role === 'facilitator' || user.role === 'admin') {
+    const clientRecord = db.getClientByEmail(user.email.toLowerCase());
+    if (clientRecord) {
+      return res.json({ chooseRole: true, name: user.name });
+    }
+  }
+
   const redirectMap = { admin: '/admin/', facilitator: '/facilitator/', client: '/client/' };
   res.json({ redirect: redirectMap[user.role] || '/login' });
 });
@@ -253,6 +262,13 @@ app.patch('/api/clients/:id/archive', auth.requireAuthApi(['admin','facilitator'
 });
 app.get('/api/my/profile', auth.requireAuthApi(['client']), (req, res) => {
   res.json({ ...db.getClient(req.user.id), sessions: db.getClientSessionsForClient(req.user.id), practices: db.getPracticesForClient(req.user.id) });
+});
+
+// ── My Space — check if facilitator has a client record ──
+app.get('/api/my-space/status', auth.requireAuthApi(['facilitator', 'admin']), (req, res) => {
+  const fac    = db.getFacilitatorById(req.user.id);
+  const client = fac ? db.getClientByEmail(fac.email) : null;
+  res.json({ hasClientRecord: !!client });
 });
 
 // ── My Space — facilitator as system client ──
