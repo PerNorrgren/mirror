@@ -117,6 +117,21 @@
     #start-inner p  { font-size:15px; line-height:1.8; color:rgba(255,255,255,0.45); margin-bottom:36px; }
     #start-btn { background:transparent; border:1px solid rgba(180,230,200,0.4); color:rgba(180,230,200,0.8); padding:14px 36px; border-radius:6px; font-family:inherit; font-size:13px; letter-spacing:0.1em; text-transform:uppercase; cursor:pointer; transition:all 0.2s; }
     #start-btn:hover { border-color:rgba(180,230,200,0.8); color:rgba(180,230,200,1); }
+  /* Welcome modal */
+  .welcome-modal { display:none; position:fixed; inset:0; z-index:300; background:rgba(0,0,0,0.6); backdrop-filter:blur(8px); align-items:center; justify-content:center; padding:20px; }
+  .welcome-modal.visible { display:flex; }
+  .welcome-inner { background:#0f1a16; border:1px solid rgba(255,255,255,0.12); border-radius:20px; padding:36px 32px; width:100%; max-width:360px; display:flex; flex-direction:column; gap:18px; }
+  .welcome-inner h3 { font-size:20px; color:rgba(255,255,255,0.88); font-weight:normal; text-align:center; }
+  .welcome-inner p { font-size:14px; color:rgba(255,255,255,0.45); line-height:1.7; text-align:center; }
+  .welcome-field { display:flex; flex-direction:column; gap:6px; }
+  .welcome-field label { font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:rgba(255,255,255,0.3); }
+  .welcome-field input { background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12); border-radius:10px; padding:11px 14px; font-size:15px; color:rgba(255,255,255,0.85); font-family:'Georgia',serif; outline:none; transition:border-color 0.2s; width:100%; }
+  .welcome-field input:focus { border-color:rgba(180,230,200,0.4); }
+  .welcome-privacy { font-size:11px; color:rgba(255,255,255,0.2); text-align:center; line-height:1.6; }
+  .welcome-submit { width:100%; padding:13px; border-radius:10px; border:1px solid rgba(180,230,200,0.3); background:rgba(180,230,200,0.1); color:rgba(180,230,200,0.85); font-size:13px; letter-spacing:0.12em; text-transform:uppercase; cursor:pointer; transition:all 0.2s; font-family:'Georgia',serif; }
+  .welcome-submit:hover { background:rgba(180,230,200,0.18); }
+  .welcome-skip { text-align:center; font-size:12px; color:rgba(255,255,255,0.2); cursor:pointer; letter-spacing:0.05em; }
+  .welcome-skip:hover { color:rgba(255,255,255,0.45); }
   </style>
 </head>
 <body>
@@ -458,5 +473,24 @@
     }
   }
 </script>
+<!-- Welcome / lead capture modal -->
+<div class="welcome-modal" id="welcomeModal">
+  <div class="welcome-inner">
+    <h3>Welcome</h3>
+    <p>You're exploring Deeper Mindfulness. If you'd like to stay in touch — occasional newsletter, nothing else — leave your name and email.</p>
+    <div class="welcome-field">
+      <label>Your name</label>
+      <input type="text" id="leadName" placeholder="First name is fine"/>
+    </div>
+    <div class="welcome-field">
+      <label>Email</label>
+      <input type="email" id="leadEmail" placeholder="your@email.com"/>
+    </div>
+    <div class="welcome-privacy">No spam. No selling your details. Just the occasional update from Per.</div>
+    <button class="welcome-submit" onclick="submitLead()">Stay in touch</button>
+    <div class="welcome-skip" onclick="dismissLead()">Just exploring for now</div>
+  </div>
+</div>
+
 </body>
 </html>
