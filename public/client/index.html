@@ -92,6 +92,43 @@
     .session-summary { font-size:13px; color:rgba(255,255,255,0.65); line-height:1.65; }
     .no-sessions { text-align:center; padding:32px 20px; color:rgba(255,255,255,0.3); font-size:14px; font-style:italic; }
 
+    /* Content tab */
+    .content-view { display:none; flex-direction:column; overflow:hidden; }
+    .content-view.visible { display:flex; }
+    .content-scroll { overflow-y:auto; flex:1; padding:0 0 16px; max-height:500px; }
+    .content-scroll::-webkit-scrollbar { width:3px; }
+    .content-scroll::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.1); border-radius:2px; }
+
+    .content-section { margin-bottom:4px; }
+    .content-section-hdr { font-size:10px; letter-spacing:0.18em; text-transform:uppercase; color:rgba(255,255,255,0.3); padding:12px 18px 6px; display:flex; align-items:center; justify-content:space-between; }
+    .content-item { display:flex; align-items:center; gap:10px; padding:9px 18px; cursor:pointer; transition:background 0.15s; border-bottom:1px solid rgba(255,255,255,0.04); }
+    .content-item:hover { background:rgba(255,255,255,0.04); }
+    .content-item.locked { opacity:0.35; cursor:default; }
+    .content-icon { font-size:16px; flex-shrink:0; width:20px; text-align:center; }
+    .content-title { flex:1; font-size:13px; color:rgba(255,255,255,0.8); line-height:1.4; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .content-desc { font-size:11px; color:rgba(255,255,255,0.3); margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .heart-btn { background:none; border:none; cursor:pointer; font-size:15px; padding:4px; color:rgba(255,255,255,0.2); transition:all 0.15s; flex-shrink:0; }
+    .heart-btn.active { color:rgba(255,120,120,0.8); }
+    .heart-btn:hover { transform:scale(1.2); }
+    .play-btn { background:none; border:1px solid rgba(255,255,255,0.12); border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; transition:all 0.15s; color:rgba(255,255,255,0.5); font-size:10px; }
+    .play-btn:hover { background:rgba(180,230,200,0.1); border-color:rgba(180,230,200,0.3); color:rgba(180,230,200,0.8); }
+    .play-btn.playing { background:rgba(180,230,200,0.12); border-color:rgba(180,230,200,0.4); color:rgba(180,230,200,0.9); }
+
+    /* Mini player */
+    .mini-player { display:none; padding:10px 16px; border-top:1px solid rgba(255,255,255,0.07); background:rgba(180,230,200,0.04); flex-shrink:0; }
+    .mini-player.visible { display:block; }
+    .mini-player-title { font-size:12px; color:rgba(255,255,255,0.6); margin-bottom:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .mini-player-controls { display:flex; align-items:center; gap:10px; }
+    .mp-btn { background:none; border:1px solid rgba(255,255,255,0.15); border-radius:50%; width:30px; height:30px; display:flex; align-items:center; justify-content:center; cursor:pointer; color:rgba(255,255,255,0.6); font-size:11px; flex-shrink:0; }
+    .mp-btn:hover { border-color:rgba(180,230,200,0.4); color:rgba(180,230,200,0.8); }
+    .mp-progress { flex:1; height:3px; background:rgba(255,255,255,0.1); border-radius:2px; cursor:pointer; position:relative; }
+    .mp-progress-fill { height:100%; background:rgba(180,230,200,0.6); border-radius:2px; transition:width 0.5s linear; }
+    .mp-time { font-size:10px; color:rgba(255,255,255,0.3); flex-shrink:0; }
+
+    /* User playlists */
+    .pl-create-btn { margin:8px 18px; padding:7px 14px; border-radius:8px; border:1px solid rgba(180,230,200,0.2); background:none; color:rgba(180,230,200,0.5); font-size:11px; letter-spacing:0.1em; text-transform:uppercase; cursor:pointer; font-family:'Georgia',serif; transition:all 0.2s; width:calc(100% - 36px); }
+    .pl-create-btn:hover { background:rgba(180,230,200,0.07); color:rgba(180,230,200,0.8); }
+
     /* Voice / Config */
     .config-view { display:none; flex-direction:column; overflow:hidden; }
     .config-view.visible { display:flex; }
@@ -182,6 +219,7 @@
       <button class="tab active" id="tabTalk"      onclick="switchTab('talk')">Talk</button>
       <button class="tab"        id="tabPractices" onclick="switchTab('practices')">Practices</button>
       <button class="tab"        id="tabSessions"  onclick="switchTab('sessions')">Sessions</button>
+      <button class="tab"        id="tabContent"   onclick="switchTab('content')">Content</button>
       <button class="tab"        id="tabConfig"    onclick="switchTab('config')">Voice</button>
     </div>
 
@@ -220,6 +258,23 @@
     <div class="config-view" id="configView">
       <div class="config-scroll">
         <span class="config-label">This feature is coming soon — Per's cloned voice is active.</span>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div class="content-view" id="contentView">
+      <div class="content-scroll" id="contentScroll"></div>
+      <!-- Mini player -->
+      <div class="mini-player" id="miniPlayer">
+        <div class="mini-player-title" id="miniPlayerTitle">—</div>
+        <div class="mini-player-controls">
+          <button class="mp-btn" id="mpPlayBtn" onclick="mpToggle()">▶</button>
+          <div class="mp-progress" id="mpProgress" onclick="mpSeek(event)">
+            <div class="mp-progress-fill" id="mpFill" style="width:0%"></div>
+          </div>
+          <span class="mp-time" id="mpTime">0:00</span>
+          <button class="mp-btn" onclick="mpClose()" style="font-size:14px">×</button>
+        </div>
       </div>
     </div>
 
@@ -286,15 +341,17 @@
 
   // ── Tabs ──
   function switchTab(tab) {
-    ['talk','practices','sessions','config'].forEach(t => {
+    ['talk','practices','sessions','content','config'].forEach(t => {
       document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1)).classList.toggle('active', t === tab);
     });
     document.getElementById('talkView').style.display      = tab === 'talk' ? '' : 'none';
     document.getElementById('practicesView').classList.toggle('visible', tab === 'practices');
     document.getElementById('sessionsView').classList.toggle('visible',  tab === 'sessions');
+    document.getElementById('contentView').classList.toggle('visible',   tab === 'content');
     document.getElementById('configView').classList.toggle('visible',    tab === 'config');
     if (tab === 'practices') loadPractices();
     if (tab === 'sessions')  loadSessions();
+    if (tab === 'content')   loadContent();
   }
 
   // ── Auth ──
@@ -537,6 +594,262 @@
       startListening();
     }
   });
+
+  // ── Content ──
+  const CONTENT_SECTIONS = [
+    { key: 'courses',    label: 'Courses',                              icon: '📚', match: (f,cats) => cats.courses.has(f.category_id) },
+    { key: 'one2one',   label: 'One-to-one session material',           icon: '🎯', match: (f,cats) => cats.one2one.has(f.category_id) },
+    { key: 'guided',    label: 'Guided practice tracks',                icon: '🎵', match: (f,cats) => cats.guided.has(f.category_id) },
+    { key: 'written',   label: 'Written material and information videos',icon: '📄', match: (f,cats) => cats.written.has(f.category_id) },
+  ];
+
+  let _contentData   = [];
+  let _userPlaylists = [];
+  let _cats          = {};
+  let _currentAudioFile = null;
+
+  // Mini player state
+  let mpAudio = null;
+
+  function fmtTime(s) {
+    s = Math.floor(s||0);
+    return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0');
+  }
+
+  function mpPlay(file) {
+    if (mpAudio) { mpAudio.pause(); mpAudio = null; }
+    _currentAudioFile = file;
+    document.getElementById('miniPlayerTitle').textContent = file.title;
+    document.getElementById('miniPlayer').classList.add('visible');
+    document.getElementById('mpFill').style.width = '0%';
+    document.getElementById('mpTime').textContent = '0:00';
+    document.getElementById('mpPlayBtn').textContent = '⏸';
+
+    mpAudio = new Audio(`/uploads/${file.filename}`);
+    mpAudio.addEventListener('timeupdate', () => {
+      const pct = mpAudio.duration ? (mpAudio.currentTime / mpAudio.duration * 100) : 0;
+      document.getElementById('mpFill').style.width = pct + '%';
+      document.getElementById('mpTime').textContent = fmtTime(mpAudio.currentTime);
+    });
+    mpAudio.addEventListener('ended', () => {
+      document.getElementById('mpPlayBtn').textContent = '▶';
+      document.getElementById('mpFill').style.width = '0%';
+      // Update play buttons
+      document.querySelectorAll('.play-btn.playing').forEach(b => b.classList.remove('playing'));
+      document.querySelectorAll('.play-btn').forEach(b => b.textContent = '▶');
+    });
+    mpAudio.play();
+    // Mark play button
+    document.querySelectorAll('.play-btn').forEach(b => {
+      b.classList.toggle('playing', b.dataset.fileId === file.id);
+      b.textContent = b.dataset.fileId === file.id ? '⏸' : '▶';
+    });
+  }
+
+  function mpToggle() {
+    if (!mpAudio) return;
+    if (mpAudio.paused) { mpAudio.play(); document.getElementById('mpPlayBtn').textContent = '⏸'; }
+    else { mpAudio.pause(); document.getElementById('mpPlayBtn').textContent = '▶'; }
+  }
+
+  function mpSeek(e) {
+    if (!mpAudio || !mpAudio.duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    mpAudio.currentTime = ((e.clientX - rect.left) / rect.width) * mpAudio.duration;
+  }
+
+  function mpClose() {
+    if (mpAudio) { mpAudio.pause(); mpAudio = null; }
+    document.getElementById('miniPlayer').classList.remove('visible');
+    document.querySelectorAll('.play-btn').forEach(b => { b.classList.remove('playing'); b.textContent = '▶'; });
+    _currentAudioFile = null;
+  }
+
+  async function toggleFavourite(fileId, btn) {
+    const isActive = btn.classList.contains('active');
+    if (isActive) {
+      await fetch(`/api/client/favourites/${fileId}`, { method: 'DELETE' });
+      btn.classList.remove('active');
+    } else {
+      await fetch(`/api/client/favourites/${fileId}`, { method: 'POST' });
+      btn.classList.add('active');
+    }
+    // Update in data
+    const f = _contentData.find(x => x.id === fileId);
+    if (f) f.is_favourite = !isActive;
+    // Re-render favourites section only
+    renderFavourites();
+  }
+
+  function isAudio(f) {
+    return f.file_type?.startsWith('audio') || f.filename?.match(/\.(mp3|wav|ogg|m4a|aac)$/i);
+  }
+
+  function contentItemHTML(f) {
+    const icon  = isAudio(f) ? '🎵' : f.file_type?.startsWith('video') ? '🎬' : '📄';
+    const heart = `<button class="heart-btn ${f.is_favourite?'active':''}" onclick="event.stopPropagation();toggleFavourite('${f.id}',this)" title="Favourite">♥</button>`;
+    const play  = isAudio(f)
+      ? `<button class="play-btn" data-file-id="${f.id}" onclick="event.stopPropagation();mpPlay(${JSON.stringify(JSON.stringify(f))})" title="Play">▶</button>`
+      : '';
+    const addPl = `<button class="play-btn" style="font-size:9px" onclick="event.stopPropagation();openAddToPlaylist('${f.id}')" title="Add to playlist">＋</button>`;
+    return `<div class="content-item" onclick="openContentFile(${JSON.stringify(JSON.stringify(f))})">
+      <span class="content-icon">${icon}</span>
+      <div style="flex:1;min-width:0">
+        <div class="content-title">${f.title}</div>
+        ${f.description?`<div class="content-desc">${f.description}</div>`:''}
+      </div>
+      ${play}${addPl}${heart}
+    </div>`;
+  }
+
+  function renderFavourites() {
+    const favs = _contentData.filter(f => f.is_favourite);
+    const el   = document.getElementById('content-favs');
+    if (!el) return;
+    el.innerHTML = favs.length
+      ? favs.map(f => contentItemHTML(f)).join('')
+      : '<div style="padding:8px 18px;font-size:12px;color:rgba(255,255,255,0.2);font-style:italic">Tap ♥ on any item to add it here.</div>';
+  }
+
+  async function loadContent() {
+    const el = document.getElementById('contentScroll');
+    el.innerHTML = '<div style="padding:20px;text-align:center;color:rgba(255,255,255,0.3);font-size:13px">Loading…</div>';
+
+    try {
+      const [filesRes, plRes, catRes] = await Promise.all([
+        fetch('/api/client/content'),
+        fetch('/api/client/playlists'),
+        fetch('/api/content/categories'),
+      ]);
+      _contentData   = await filesRes.json();
+      _userPlaylists = await plRes.json();
+      const allCats  = await catRes.json();
+
+      // Map category names to sets of IDs
+      _cats = {
+        courses: new Set(allCats.filter(c => c.name === 'Courses').map(c => c.id)),
+        one2one: new Set(allCats.filter(c => c.name === 'One-to-one session material').map(c => c.id)),
+        guided:  new Set(allCats.filter(c => c.name === 'Guided practice tracks').map(c => c.id)),
+        written: new Set(allCats.filter(c => c.name === 'Written material and information videos').map(c => c.id)),
+      };
+
+      renderContentScroll();
+    } catch(e) {
+      el.innerHTML = '<div style="padding:20px;color:rgba(255,120,100,0.6);font-size:13px">Could not load content.</div>';
+    }
+  }
+
+  function renderContentScroll() {
+    const el   = document.getElementById('contentScroll');
+    const favs = _contentData.filter(f => f.is_favourite);
+
+    let html = '';
+
+    // Favourites
+    html += `<div class="content-section">
+      <div class="content-section-hdr">Favourites</div>
+      <div id="content-favs">${
+        favs.length
+          ? favs.map(f => contentItemHTML(f)).join('')
+          : '<div style="padding:8px 18px;font-size:12px;color:rgba(255,255,255,0.2);font-style:italic">Tap ♥ on any item to add it here.</div>'
+      }</div>
+    </div>`;
+
+    // Four sections
+    CONTENT_SECTIONS.forEach(sec => {
+      const items = _contentData.filter(f => sec.match(f, _cats));
+      html += `<div class="content-section">
+        <div class="content-section-hdr">${sec.icon} ${sec.label}</div>
+        <div>${items.length
+          ? items.map(f => contentItemHTML(f)).join('')
+          : '<div style="padding:8px 18px;font-size:12px;color:rgba(255,255,255,0.2);font-style:italic">No content here yet.</div>'
+        }</div>
+      </div>`;
+    });
+
+    // User playlists
+    html += `<div class="content-section">
+      <div class="content-section-hdr">My playlists</div>
+      <button class="pl-create-btn" onclick="createUserPlaylist()">+ New playlist</button>
+      <div id="user-playlists-list">${renderUserPlaylistsHTML()}</div>
+    </div>`;
+
+    el.innerHTML = html;
+  }
+
+  function renderUserPlaylistsHTML() {
+    if (!_userPlaylists.length) return '<div style="padding:4px 18px 8px;font-size:12px;color:rgba(255,255,255,0.2);font-style:italic">No playlists yet.</div>';
+    return _userPlaylists.map(pl => `
+      <div style="margin:4px 18px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);border-radius:10px;overflow:hidden">
+        <div style="display:flex;align-items:center;padding:9px 13px;gap:8px">
+          <span style="font-size:14px">🎵</span>
+          <span style="flex:1;font-size:13px;color:rgba(255,255,255,0.75)">${pl.name}</span>
+          <span style="font-size:11px;color:rgba(255,255,255,0.25)">${pl.items.length} track${pl.items.length!==1?'s':''}</span>
+          <button onclick="deleteUserPlaylist('${pl.id}')" style="background:none;border:none;color:rgba(255,255,255,0.2);cursor:pointer;font-size:14px;padding:2px 4px">×</button>
+        </div>
+        ${pl.items.map(item => `
+          <div class="content-item" style="padding:7px 13px 7px 36px">
+            <span class="content-icon">🎵</span>
+            <div class="content-title">${item.title}</div>
+            <button class="play-btn" data-file-id="${item.id}" onclick="event.stopPropagation();mpPlay(${JSON.stringify(JSON.stringify(item))})">▶</button>
+            <button onclick="event.stopPropagation();removeFromPlaylist('${pl.id}','${item.id}')" style="background:none;border:none;color:rgba(255,255,255,0.2);cursor:pointer;font-size:13px;padding:2px 4px">×</button>
+          </div>`).join('')}
+      </div>`).join('');
+  }
+
+  async function createUserPlaylist() {
+    const name = prompt('Playlist name:');
+    if (!name?.trim()) return;
+    const res  = await fetch('/api/client/playlists', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:name.trim()}) });
+    const data = await res.json();
+    if (data.id) { _userPlaylists.unshift({ id:data.id, name:data.name, items:[] }); updatePlaylistUI(); }
+  }
+
+  async function deleteUserPlaylist(id) {
+    if (!confirm('Delete this playlist?')) return;
+    await fetch(`/api/client/playlists/${id}`, { method:'DELETE' });
+    _userPlaylists = _userPlaylists.filter(p => p.id !== id);
+    updatePlaylistUI();
+  }
+
+  async function removeFromPlaylist(plId, fileId) {
+    await fetch(`/api/client/playlists/${plId}/items/${fileId}`, { method:'DELETE' });
+    const pl = _userPlaylists.find(p => p.id === plId);
+    if (pl) pl.items = pl.items.filter(i => i.id !== fileId);
+    updatePlaylistUI();
+  }
+
+  function updatePlaylistUI() {
+    const el = document.getElementById('user-playlists-list');
+    if (el) el.innerHTML = renderUserPlaylistsHTML();
+  }
+
+  function openAddToPlaylist(fileId) {
+    if (!_userPlaylists.length) {
+      if (confirm('No playlists yet. Create one?')) createUserPlaylist().then(() => openAddToPlaylist(fileId));
+      return;
+    }
+    const names = _userPlaylists.map((p,i) => `${i+1}. ${p.name}`).join('\n');
+    const choice = prompt(`Add to which playlist?\n${names}\n\nEnter number:`);
+    const idx = parseInt(choice) - 1;
+    if (isNaN(idx) || idx < 0 || idx >= _userPlaylists.length) return;
+    const pl = _userPlaylists[idx];
+    const sortOrder = pl.items.length;
+    fetch(`/api/client/playlists/${pl.id}/items`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fileId, sortOrder}) })
+      .then(() => {
+        const file = _contentData.find(f => f.id === fileId);
+        if (file) { pl.items.push(file); updatePlaylistUI(); }
+      });
+  }
+
+  function openContentFile(fileJson) {
+    const f = JSON.parse(fileJson);
+    if (isAudio(f)) { mpPlay(f); return; }
+    // For non-audio open in player overlay
+    document.getElementById('playerTitle').textContent = f.title;
+    document.getElementById('playerText').textContent  = f.description || f.title;
+    document.getElementById('playerOverlay').classList.add('visible');
+  }
 
   // ── Practices ──
   async function loadPractices() {
