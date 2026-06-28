@@ -670,9 +670,15 @@ app.post('/api/speak', auth.requireAuthApi(['client', 'facilitator', 'admin']), 
       const err = await response.text();
       return res.status(500).json({ error: err });
     }
+    // Collect complete buffer before sending — ensures client receives
+    // the full MP3 in one response body, no mid-stream stall.
+    const chunks = [];
+    for await (const chunk of response.body) chunks.push(Buffer.from(chunk));
+    const audio = Buffer.concat(chunks);
     res.set('Content-Type', 'audio/mpeg');
     res.set('Cache-Control', 'no-cache');
-    response.body.pipe(res);
+    res.set('Content-Length', audio.length);
+    res.send(audio);
   } catch(e) {
     console.error('speak error:', e);
     res.status(500).json({ error: e.message });
