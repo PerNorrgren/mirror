@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <title>Deeper Mindfulness</title>
+  <style>
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    html, body { width:100%; height:100%; overflow:hidden; font-family:'Georgia',serif; background:#0a0f0d; }
+
+    .slideshow { position:fixed; inset:0; z-index:0; }
+    .slide { position:absolute; inset:0; background-size:cover; background-position:center; opacity:0; transition:opacity 3s ease-in-out; }
+    .slide.active { opacity:1; }
+    .veil { position:fixed; inset:0; z-index:1; background:rgba(0,0,0,0.38); }
+    .panel { position:fixed; inset:0; z-index:2; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:20px; }
+
+    .glass {
+      width:100%; max-width:500px;
+      background:rgba(255,255,255,0.08);
+      backdrop-filter:blur(24px); -webkit-backdrop-filter:blur(24px);
+      border:1px solid rgba(255,255,255,0.13);
+      border-radius:22px; overflow:hidden;
+      display:flex; flex-direction:column;
+      max-height:90vh;
+    }
+
+    .header { padding:18px 24px 14px; border-bottom:1px solid rgba(255,255,255,0.07); display:flex; align-items:center; justify-content:space-between; flex-shrink:0; }
+    .wordmark { font-size:10px; letter-spacing:0.25em; text-transform:uppercase; color:rgba(255,255,255,0.4); }
+    .sign-in-btn { font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:rgba(180,230,200,0.6); background:none; border:1px solid rgba(180,230,200,0.2); border-radius:6px; padding:5px 12px; cursor:pointer; font-family:'Georgia',serif; text-decoration:none; }
+    .sign-in-btn:hover { border-color:rgba(180,230,200,0.5); color:rgba(180,230,200,0.9); }
+
+    .tabs { display:flex; border-bottom:1px solid rgba(255,255,255,0.07); flex-shrink:0; }
+    .tab { flex:1; padding:11px; text-align:center; font-size:11px; letter-spacing:0.15em; text-transform:uppercase; color:rgba(255,255,255,0.35); cursor:pointer; background:none; border:none; font-family:'Georgia',serif; transition:all 0.2s; }
+    .tab.active { color:rgba(255,255,255,0.85); border-bottom:1.5px solid rgba(180,230,200,0.6); }
+
+    /* Talk */
+    .talk-view { padding:24px 24px 20px; display:flex; flex-direction:column; align-items:center; gap:20px; flex:1; }
+    .transcript-area { width:100%; min-height:80px; display:flex; align-items:center; justify-content:center; text-align:center; }
+    .transcript-text { font-size:16px; line-height:1.7; color:rgba(255,255,255,0.88); font-style:italic; }
+    .transcript-text.dim  { opacity:0.4; }
+    .transcript-text.user { font-style:normal; color:rgba(255,255,255,0.5); font-size:14px; }
+
+    .indicators { height:22px; display:flex; align-items:center; justify-content:center; }
+    .wave { display:none; gap:4px; align-items:flex-end; height:20px; }
+    .wave.on { display:flex; }
+    .wave span { display:block; width:3px; border-radius:2px; background:rgba(180,230,200,0.7); animation:wv 1.1s ease-in-out infinite; }
+    .wave span:nth-child(1){height:8px;animation-delay:0s}
+    .wave span:nth-child(2){height:14px;animation-delay:0.15s}
+    .wave span:nth-child(3){height:20px;animation-delay:0.3s}
+    .wave span:nth-child(4){height:14px;animation-delay:0.45s}
+    .wave span:nth-child(5){height:8px;animation-delay:0.6s}
+    @keyframes wv { 0%,100%{transform:scaleY(0.4);opacity:0.5} 50%{transform:scaleY(1);opacity:1} }
+    .dots { display:none; gap:6px; align-items:center; }
+    .dots.on { display:flex; }
+    .dots span { width:6px; height:6px; border-radius:50%; background:rgba(255,255,255,0.35); animation:db 1.2s ease-in-out infinite; }
+    .dots span:nth-child(1){animation-delay:0s}
+    .dots span:nth-child(2){animation-delay:0.2s}
+    .dots span:nth-child(3){animation-delay:0.4s}
+    @keyframes db { 0%,80%,100%{transform:translateY(0);opacity:0.35} 40%{transform:translateY(-6px);opacity:1} }
+
+    .thinking { display:none; align-items:center; gap:8px; padding:10px 14px; background:rgba(180,230,200,0.06); border:1px solid rgba(180,230,200,0.12); border-radius:10px; }
+    .thinking.visible { display:flex; }
+    .thinking-text { font-size:12px; color:rgba(180,230,200,0.5); letter-spacing:0.08em; }
+    .thinking-dots { display:flex; gap:4px; }
+    .thinking-dots span { width:5px; height:5px; border-radius:50%; background:rgba(180,230,200,0.4); animation:db 1.2s ease-in-out infinite; }
+
+    .mic-wrap { display:flex; flex-direction:column; align-items:center; gap:10px; }
+    .mic-btn { width:68px; height:68px; border-radius:50%; border:1.5px solid rgba(255,255,255,0.22); background:rgba(255,255,255,0.06); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.25s ease; outline:none; }
+    .mic-btn:hover { background:rgba(255,255,255,0.12); border-color:rgba(255,255,255,0.38); }
+    .mic-btn.active { background:rgba(180,230,200,0.13); border-color:rgba(180,230,200,0.5); animation:pulse 2s ease-in-out infinite; }
+    @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(180,230,200,0.4)} 70%{box-shadow:0 0 0 16px rgba(180,230,200,0)} 100%{box-shadow:0 0 0 0 rgba(180,230,200,0)} }
+    .mic-btn svg { width:26px; height:26px; fill:rgba(255,255,255,0.65); }
+    .mic-btn.active svg { fill:rgba(180,230,200,0.9); }
+    .status { font-size:11px; letter-spacing:0.1em; color:rgba(255,255,255,0.25); text-transform:uppercase; height:14px; }
+    .status.on { color:rgba(180,230,200,0.65); }
+
+    /* Explore / content */
+    .explore-view { display:none; flex-direction:column; overflow:hidden; }
+    .explore-view.visible { display:flex; }
+    .explore-scroll { overflow-y:auto; flex:1; padding:14px 18px; max-height:420px; }
+    .explore-scroll::-webkit-scrollbar { width:3px; }
+    .explore-scroll::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.1); border-radius:2px; }
+
+    .content-item { display:flex; align-items:center; gap:12px; padding:11px 13px; margin-bottom:7px; border-radius:11px; cursor:pointer; transition:all 0.2s; border:1px solid rgba(255,255,255,0.08); }
+    .content-item.accessible { background:rgba(255,255,255,0.05); }
+    .content-item.accessible:hover { background:rgba(255,255,255,0.09); }
+    .content-item.locked { background:rgba(255,255,255,0.02); opacity:0.45; cursor:default; }
+    .content-icon { font-size:18px; flex-shrink:0; }
+    .content-info { flex:1; min-width:0; }
+    .content-title { font-size:14px; color:rgba(255,255,255,0.82); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .content-meta  { font-size:11px; color:rgba(255,255,255,0.35); margin-top:2px; }
+    .lock-icon { font-size:14px; opacity:0.4; flex-shrink:0; }
+    .no-content { text-align:center; padding:32px 20px; color:rgba(255,255,255,0.3); font-size:14px; font-style:italic; }
+
+    /* Locked modal */
+    .locked-modal { display:none; position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.65); backdrop-filter:blur(8px); align-items:center; justify-content:center; padding:20px; }
+    .locked-modal.visible { display:flex; }
+    .locked-inner { background:#141a17; border:1px solid rgba(255,255,255,0.12); border-radius:16px; padding:32px 28px; width:100%; max-width:340px; text-align:center; display:flex; flex-direction:column; gap:16px; }
+    .locked-inner h3 { font-size:18px; color:rgba(255,255,255,0.85); font-weight:normal; }
+    .locked-inner p { font-size:14px; color:rgba(255,255,255,0.45); line-height:1.7; }
+    .locked-cta { display:inline-block; padding:12px 28px; border-radius:8px; border:1px solid rgba(180,230,200,0.3); background:rgba(180,230,200,0.1); color:rgba(180,230,200,0.85); font-family:'Georgia',serif; font-size:13px; letter-spacing:0.1em; text-transform:uppercase; text-decoration:none; cursor:pointer; transition:all 0.2s; }
+    .locked-cta:hover { background:rgba(180,230,200,0.2); }
+    .locked-dismiss { font-size:12px; color:rgba(255,255,255,0.25); cursor:pointer; letter-spacing:0.05em; }
+    .locked-dismiss:hover { color:rgba(255,255,255,0.5); }
+
+    /* Player */
+    .player-overlay { display:none; position:absolute; inset:0; z-index:10; background:rgba(10,15,13,0.94); backdrop-filter:blur(12px); border-radius:22px; flex-direction:column; align-items:center; justify-content:center; gap:20px; padding:32px; }
+    .player-overlay.visible { display:flex; }
+    .player-title { font-size:17px; color:rgba(255,255,255,0.88); text-align:center; }
+    .player-text  { font-size:15px; line-height:1.8; color:rgba(255,255,255,0.7); text-align:center; font-style:italic; max-height:200px; overflow-y:auto; }
+    .player-close { background:none; border:1px solid rgba(255,255,255,0.2); color:rgba(255,255,255,0.5); padding:8px 20px; border-radius:20px; cursor:pointer; font-size:12px; letter-spacing:0.1em; text-transform:uppercase; font-family:'Georgia',serif; }
+
+    /* Start screen */
+    #start { position:fixed; inset:0; background:rgba(10,12,10,0.88); display:flex; align-items:center; justify-content:center; z-index:99; }
+    #start-inner { text-align:center; max-width:320px; padding:32px; }
+    #start-inner h1 { font-size:36px; color:rgba(255,255,255,0.85); margin-bottom:12px; font-weight:normal; font-style:italic; }
+    #start-inner p  { font-size:15px; line-height:1.8; color:rgba(255,255,255,0.45); margin-bottom:36px; }
+    #start-btn { background:transparent; border:1px solid rgba(180,230,200,0.4); color:rgba(180,230,200,0.8); padding:14px 36px; border-radius:6px; font-family:inherit; font-size:13px; letter-spacing:0.1em; text-transform:uppercase; cursor:pointer; transition:all 0.2s; }
+    #start-btn:hover { border-color:rgba(180,230,200,0.8); color:rgba(180,230,200,1); }
+  </style>
+</head>
+<body>
+
+<div id="start">
+  <div id="start-inner">
+    <h1>Deeper Mindfulness</h1>
+    <p>A body-based guide is here.<br>Tap when you're ready.</p>
+    <button id="start-btn" onclick="begin()">Begin</button>
+  </div>
+</div>
+
+<div class="slideshow" id="slideshow"></div>
+<div class="veil"></div>
+
+<div class="panel">
+  <div class="glass" style="position:relative">
+
+    <div class="header">
+      <div class="wordmark">Deeper Mindfulness</div>
+      <a href="/login" class="sign-in-btn">Sign in</a>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" id="tabTalk"    onclick="switchTab('talk')">Talk</button>
+      <button class="tab"        id="tabExplore" onclick="switchTab('explore')">Explore</button>
+    </div>
+
+    <!-- Talk -->
+    <div class="talk-view" id="talkView">
+      <div class="transcript-area">
+        <p class="transcript-text" id="transcript">—</p>
+      </div>
+      <div class="indicators">
+        <div class="wave" id="wave"><span></span><span></span><span></span><span></span><span></span></div>
+        <div class="dots" id="dots"><span></span><span></span><span></span></div>
+      </div>
+      <div class="thinking" id="thinking">
+        <div class="thinking-dots"><span></span><span></span><span></span></div>
+        <div class="thinking-text">thinking</div>
+      </div>
+      <div class="mic-wrap">
+        <button class="mic-btn" id="micBtn">
+          <svg viewBox="0 0 24 24"><path d="M12 1a4 4 0 0 1 4 4v7a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4zm0 2a2 2 0 0 0-2 2v7a2 2 0 0 0 4 0V5a2 2 0 0 0-2-2zm-7 9a1 1 0 0 1 1 1 6 6 0 0 0 12 0 1 1 0 0 1 2 0 8 8 0 0 1-7 7.938V23h3a1 1 0 0 1 0 2H8a1 1 0 0 1 0-2h3v-2.062A8 8 0 0 1 4 13a1 1 0 0 1 1-1z"/></svg>
+        </button>
+      </div>
+      <div class="status on" id="status"></div>
+    </div>
+
+    <!-- Explore -->
+    <div class="explore-view" id="exploreView">
+      <div class="explore-scroll" id="contentList">
+        <div class="no-content">Loading…</div>
+      </div>
+    </div>
+
+    <!-- Player -->
+    <div class="player-overlay" id="playerOverlay">
+      <div class="player-title" id="playerTitle"></div>
+      <div class="player-text"  id="playerText"></div>
+      <button class="player-close" onclick="document.getElementById('playerOverlay').classList.remove('visible')">Close</button>
+    </div>
+
+  </div>
+</div>
+
+<!-- Locked modal -->
+<div class="locked-modal" id="lockedModal">
+  <div class="locked-inner">
+    <h3>Available to members</h3>
+    <p>This content is part of the full Deeper Mindfulness programme. Sign up or speak to Per to get access.</p>
+    <a href="https://deepermindfulness.org/contact" class="locked-cta">Get in touch</a>
+    <div class="locked-dismiss" onclick="document.getElementById('lockedModal').classList.remove('visible')">Maybe later</div>
+  </div>
+</div>
+
+<script>
+  const sessionId = Math.random().toString(36).slice(2);
+
+  // ── Slideshow ──
+  const slides = [
+    'https://images.unsplash.com/photo-1505118380757-91f5f5632de0?w=1600&q=80',
+    'https://images.unsplash.com/photo-1433086966358-54859d0ed716?w=1600&q=80',
+    'https://images.unsplash.com/photo-1501854140801-50d01698950b?w=1600&q=80',
+    'https://images.unsplash.com/photo-1448375240586-882707db888b?w=1600&q=80',
+    'https://images.unsplash.com/photo-1470770841072-f978cf4d019e?w=1600&q=80',
+  ];
+  const ss = document.getElementById('slideshow');
+  const slideEls = slides.map((url, i) => {
+    const d = document.createElement('div');
+    d.className = 'slide' + (i === 0 ? ' active' : '');
+    d.style.backgroundImage = `url('${url}')`;
+    ss.appendChild(d); return d;
+  });
+  let cur = 0;
+  setInterval(() => {
+    slideEls[cur].classList.remove('active');
+    cur = (cur + 1) % slideEls.length;
+    slideEls[cur].classList.add('active');
+  }, 9000);
+
+  // ── Tabs ──
+  function switchTab(tab) {
+    ['talk','explore'].forEach(t => {
+      document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1)).classList.toggle('active', t === tab);
+    });
+    document.getElementById('talkView').style.display    = tab === 'talk'    ? '' : 'none';
+    document.getElementById('exploreView').classList.toggle('visible', tab === 'explore');
+    if (tab === 'explore') loadContent();
+  }
+
+  // ── State ──
+  const transcriptEl = document.getElementById('transcript');
+  const statusEl     = document.getElementById('status');
+  const micBtn       = document.getElementById('micBtn');
+  const waveEl       = document.getElementById('wave');
+  const dotsEl       = document.getElementById('dots');
+  const thinkingEl   = document.getElementById('thinking');
+
+  let isSpeaking = false, busy = false, micActive = false;
+  let currentAudio = null, mediaStream = null;
+  let audioContext = null, processor = null, deepgramWs = null;
+  let accumulated = '';
+
+  function setState(s) {
+    waveEl.classList.remove('on'); dotsEl.classList.remove('on');
+    micBtn.classList.remove('active'); statusEl.classList.remove('on');
+    thinkingEl.classList.remove('visible');
+    if (s === 'idle')       { statusEl.textContent = ''; }
+    if (s === 'listening')  { micBtn.classList.add('active'); statusEl.classList.add('on'); statusEl.textContent = 'listening'; }
+    if (s === 'processing') { thinkingEl.classList.add('visible'); }
+    if (s === 'speaking')   { waveEl.classList.add('on'); }
+  }
+
+  // ── Speak ──
+  async function speak(text) {
+    return new Promise(async (resolve) => {
+      try {
+        isSpeaking = true;
+        setState('speaking');
+        accumulated = '';
+        transcriptEl.className = 'transcript-text';
+
+        const r = await fetch('/api/speak', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text })
+        });
+
+        if (!r.ok) throw new Error('speak failed');
+
+        const buffer = await r.arrayBuffer();
+        const blob   = new Blob([buffer], { type: 'audio/mpeg' });
+        const url    = URL.createObjectURL(blob);
+
+        if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+        currentAudio = new Audio(url);
+
+        currentAudio.onended = () => {
+          URL.revokeObjectURL(url);
+          currentAudio = null;
+          isSpeaking = false;
+          setState('');
+          setTimeout(() => {
+            statusEl.textContent = 'listening';
+            statusEl.classList.add('on');
+            if (!micActive) startListening();
+          }, 600);
+          resolve();
+        };
+        currentAudio.onerror = () => {
+          URL.revokeObjectURL(url);
+          currentAudio = null;
+          isSpeaking = false;
+          resolve();
+        };
+        await currentAudio.play();
+      } catch(e) {
+        console.error('speak error', e);
+        isSpeaking = false;
+        resolve();
+      }
+    });
+  }
+
+  // ── Send to bot ──
+  async function sendToBot(userMsg) {
+    if (busy) return;
+    busy = true;
+    setState('processing');
+
+    const message = (userMsg && userMsg !== '[START]') ? userMsg : 'begin';
+
+    try {
+      const r = await fetch('/api/guest/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, sessionId })
+      });
+      const data  = await r.json();
+      const reply = data.reply || '';
+      if (reply) {
+        transcriptEl.textContent = reply;
+        transcriptEl.className = 'transcript-text';
+        busy = false;
+        await speak(reply);
+      } else {
+        busy = false;
+        setState('');
+      }
+    } catch(e) {
+      console.error('chat error', e);
+      busy = false;
+      setState('');
+    }
+  }
+
+  // ── STT ──
+  async function startListening() {
+    if (micActive) return;
+    try {
+      mediaStream  = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      audioContext = new AudioContext({ sampleRate: 16000 });
+      const source = audioContext.createMediaStreamSource(mediaStream);
+      const listenWsUrl = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/listen';
+      deepgramWs = new WebSocket(listenWsUrl);
+
+      deepgramWs.onopen = () => {
+        micActive = true;
+        setState('listening');
+        processor = audioContext.createScriptProcessor(4096, 1, 1);
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+        processor.onaudioprocess = (e) => {
+          if (isSpeaking || !deepgramWs || deepgramWs.readyState !== WebSocket.OPEN) return;
+          const input = e.inputBuffer.getChannelData(0);
+          const pcm16 = new Int16Array(input.length);
+          for (let i = 0; i < input.length; i++) pcm16[i] = Math.max(-32768, Math.min(32767, input[i] * 32768));
+          deepgramWs.send(pcm16.buffer);
+        };
+      };
+
+      deepgramWs.onmessage = (event) => {
+        if (isSpeaking || busy) return;
+        try {
+          const data = JSON.parse(event.data);
+          const txt  = data?.channel?.alternatives?.[0]?.transcript?.trim();
+          if (data.is_final && txt) {
+            accumulated = (accumulated + ' ' + txt).trim();
+            transcriptEl.textContent = accumulated;
+            transcriptEl.className = 'transcript-text dim';
+          } else if (!data.is_final && txt) {
+            transcriptEl.textContent = (accumulated + ' ' + txt).trim();
+            transcriptEl.className = 'transcript-text dim';
+          }
+          if (data.speech_final && accumulated) {
+            const t = accumulated; accumulated = '';
+            transcriptEl.textContent = t;
+            transcriptEl.className = 'transcript-text user';
+            sendToBot(t);
+          }
+          if (data.type === 'UtteranceEnd' && accumulated) {
+            const t = accumulated; accumulated = '';
+            transcriptEl.textContent = t;
+            transcriptEl.className = 'transcript-text user';
+            sendToBot(t);
+          }
+        } catch(e) {}
+      };
+
+      deepgramWs.onerror = () => { micActive = false; setTimeout(startListening, 2000); };
+      deepgramWs.onclose = () => { micActive = false; if (!isSpeaking) setTimeout(startListening, 1000); };
+    } catch(e) {
+      statusEl.textContent = 'mic not available';
+    }
+  }
+
+  // ── Begin ──
+  async function begin() {
+    document.getElementById('start').style.display = 'none';
+    setState('processing');
+    await startListening();
+    await sendToBot('[START]');
+  }
+
+  // ── Mic toggle ──
+  micBtn.addEventListener('click', () => {
+    if (micActive) {
+      processor?.disconnect(); processor = null;
+      audioContext?.close(); audioContext = null;
+      mediaStream?.getTracks().forEach(t => t.stop()); mediaStream = null;
+      deepgramWs?.close(); deepgramWs = null;
+      micActive = false;
+      setState('');
+    } else {
+      startListening();
+    }
+  });
+
+  // ── Content ──
+  async function loadContent() {
+    const el = document.getElementById('contentList');
+    el.innerHTML = '<div class="no-content">Loading…</div>';
+    try {
+      const r    = await fetch('/api/guest/content');
+      const list = await r.json();
+      if (!list.length) { el.innerHTML = '<div class="no-content">No content yet.</div>'; return; }
+      el.innerHTML = list.map(item => `
+        <div class="content-item ${item.accessible ? 'accessible' : 'locked'}"
+             onclick="${item.accessible ? `openContent('${item.id}','${item.title.replace(/'/g,"\\'")}','${item.file_type||''}','${item.filename||''}')` : 'showLocked()'}">
+          <span class="content-icon">${item.file_type?.startsWith('audio') ? '🎵' : item.file_type?.startsWith('video') ? '🎬' : '📄'}</span>
+          <div class="content-info">
+            <div class="content-title">${item.title}</div>
+            <div class="content-meta">${item.description || ''}</div>
+          </div>
+          ${!item.accessible ? '<span class="lock-icon">🔒</span>' : ''}
+        </div>
+      `).join('');
+    } catch(e) {
+      el.innerHTML = '<div class="no-content">Could not load content.</div>';
+    }
+  }
+
+  function showLocked() {
+    document.getElementById('lockedModal').classList.add('visible');
+  }
+
+  function openContent(id, title, fileType, filename) {
+    document.getElementById('playerTitle').textContent = title;
+    if (fileType?.startsWith('audio')) {
+      const audio = new Audio(`/uploads/${filename}`);
+      document.getElementById('playerText').textContent = 'Playing…';
+      document.getElementById('playerOverlay').classList.add('visible');
+      audio.play();
+      audio.onended = () => { document.getElementById('playerText').textContent = 'Done.'; };
+    } else {
+      document.getElementById('playerText').textContent = 'Open the full content in your member area.';
+      document.getElementById('playerOverlay').classList.add('visible');
+    }
+  }
+</script>
+</body>
+</html>
