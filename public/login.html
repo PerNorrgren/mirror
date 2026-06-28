@@ -54,6 +54,17 @@
     .submit-btn:disabled { opacity:0.5; cursor:not-allowed; }
 
     .footer-note { text-align:center; font-size:11px; color:rgba(255,255,255,0.2); }
+  /* Role chooser modal */
+  .role-modal { display:none; position:fixed; inset:0; z-index:300; background:rgba(0,0,0,0.7); backdrop-filter:blur(8px); align-items:center; justify-content:center; padding:20px; }
+  .role-modal.visible { display:flex; }
+  .role-inner { background:#0f1a16; border:1px solid rgba(255,255,255,0.12); border-radius:20px; padding:36px 32px; width:100%; max-width:340px; display:flex; flex-direction:column; gap:16px; text-align:center; }
+  .role-inner h3 { font-size:20px; color:rgba(255,255,255,0.85); font-weight:normal; }
+  .role-inner p { font-size:14px; color:rgba(255,255,255,0.4); line-height:1.7; }
+  .role-btn { width:100%; padding:14px; border-radius:10px; font-family:'Georgia',serif; font-size:14px; letter-spacing:0.08em; cursor:pointer; transition:all 0.2s; }
+  .role-btn-primary { border:1px solid rgba(180,230,200,0.35); background:rgba(180,230,200,0.1); color:rgba(180,230,200,0.85); }
+  .role-btn-primary:hover { background:rgba(180,230,200,0.2); }
+  .role-btn-secondary { border:1px solid rgba(255,255,255,0.12); background:none; color:rgba(255,255,255,0.45); }
+  .role-btn-secondary:hover { background:rgba(255,255,255,0.06); color:rgba(255,255,255,0.7); }
   </style>
 </head>
 <body>
@@ -177,13 +188,24 @@
 
       const data = await res.json();
 
-      if (data.redirect) {
+      if (data.chooseRole) {
+        // Dual-role user — show chooser modal
+        document.getElementById('roleModalName').textContent = 'You have access to both a practice space and the facilitator area.';
+        document.getElementById('roleModal').classList.add('visible');
+        btn.disabled = false;
+        btn.textContent = 'Sign in';
+      } else if (data.redirect) {
         window.location.href = data.redirect;
       } else {
         errorEl.textContent = data.error || 'Something went wrong.';
         btn.disabled = false;
         btn.textContent = 'Sign in';
       }
+    }
+
+    function goToRole(role) {
+      const map = { client: '/client/', facilitator: '/facilitator/', admin: '/admin/' };
+      window.location.href = map[role] || '/login';
     }
 
     document.getElementById('submitBtn').addEventListener('click', doLogin);
@@ -194,5 +216,16 @@
       if (e.key === 'Enter') document.getElementById('password').focus();
     });
   </script>
+<!-- Role chooser modal — shown when user has both facilitator and client roles -->
+<div class="role-modal" id="roleModal">
+  <div class="role-inner">
+    <h3>Welcome back</h3>
+    <p id="roleModalName"></p>
+    <p style="font-size:13px;color:rgba(255,255,255,0.3)">Where would you like to go?</p>
+    <button class="role-btn role-btn-primary" onclick="goToRole('client')">My Practice</button>
+    <button class="role-btn role-btn-secondary" onclick="goToRole('facilitator')">Facilitator</button>
+  </div>
+</div>
+
 </body>
 </html>
