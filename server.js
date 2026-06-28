@@ -412,22 +412,34 @@ function sendSpeakText(text, ws) {
 // Alias so all call sites work unchanged
 const textToSpeechSentences = (text, ws) => { sendSpeakText(text, ws); return Promise.resolve(); };
 
-// ── Deepgram STT ──
-function openDeepgram(onTranscript) {
-  const dgUrl = 'wss://api.deepgram.com/v1/listen?' + new URLSearchParams({
-    model: 'nova-2', language: 'en', punctuate: 'true',
-    interim_results: 'true', endpointing: '500',
+// ── Deepgram STT — dedicated /listen WebSocket (Mare Bot architecture) ──
+// Client opens wss://host/listen and sends raw PCM binary directly.
+// Server proxies straight to Deepgram and forwards transcripts back.
+// Completely separate from the app control WebSocket.
+const listenWss = new WebSocket.Server({ server, path: '/listen' });
+
+listenWss.on('connection', (clientWs) => {
+  const dgWs = new WebSocket(
+    'wss://api.deepgram.com/v1/listen?model=nova-2&language=en&encoding=linear16&sample_rate=16000&channels=1&punctuate=true&interim_results=true&endpointing=500&utterance_end_ms=1000',
+    { headers: { Authorization: `Token ${DEEPGRAM_API_KEY}` } }
+  );
+
+  dgWs.on('open', () => console.log('Deepgram STT connected'));
+  dgWs.on('message', (data) => {
+    if (clientWs.readyState === WebSocket.OPEN) {
+      clientWs.send(typeof data === 'string' ? data : data.toString('utf8'));
+    }
   });
-  const dg = new WebSocket(dgUrl, { headers: { Authorization: `Token ${DEEPGRAM_API_KEY}` } });
-  dg.on('message', (data) => {
-    const result = JSON.parse(data.toString());
-    const transcript = result?.channel?.alternatives?.[0]?.transcript;
-    const isFinal    = result?.is_final;
-    if (transcript?.trim()) onTranscript(transcript, isFinal);
+  dgWs.on('error', (e) => console.error('Deepgram error:', e));
+  dgWs.on('close', () => console.log('Deepgram STT closed'));
+
+  clientWs.on('message', (audioData) => {
+    if (dgWs.readyState === WebSocket.OPEN) dgWs.send(audioData);
   });
-  dg.on('error', (e) => console.error('Deepgram error:', e));
-  return dg;
-}
+  clientWs.on('close', () => {
+    if (dgWs.readyState === WebSocket.OPEN) dgWs.close();
+  });
+});
 
 // ── WebSocket: verify session cookie ──
 function getWsUser(req) {
@@ -449,7 +461,6 @@ wss.on('connection', (ws, req) => {
   let conversationHistory = [];
   let sessionTranscript   = [];
   let fogLevel            = 12;
-  let deepgramWs          = null;
   let systemPrompt        = '';
   let isProcessing        = false;
 
@@ -506,39 +517,27 @@ wss.on('connection', (ws, req) => {
     let msg;
     try { msg = JSON.parse(message); } catch { return; }
 
-    if (msg.type === 'start_listening') {
-      deepgramWs = openDeepgram(async (transcript, isFinal) => {
-        if (!isFinal) { ws.send(JSON.stringify({ type: 'interim_transcript', text: transcript })); return; }
-        if (isProcessing) return; // Drop if still processing previous response
-        ws.send(JSON.stringify({ type: 'final_transcript', text: transcript }));
-        sessionTranscript.push(`USER: ${transcript}`);
-        isProcessing = true;
+    // Transcript arrives from client after /listen WebSocket processes it
+    if (msg.type === 'user_transcript') {
+      const transcript = msg.text;
+      if (!transcript?.trim() || isProcessing) return;
+      ws.send(JSON.stringify({ type: 'final_transcript', text: transcript }));
+      sessionTranscript.push(`USER: ${transcript}`);
+      isProcessing = true;
 
-        const detailed = msg.detailed || false;
-        const content  = (botType === 'facilitator' && !detailed)
-          ? transcript + '\n\n[Respond in 2-3 sentences maximum. Short and sharp.]'
-          : transcript;
-        conversationHistory.push({ role: 'user', content });
+      const content = (botType === 'facilitator')
+        ? transcript + '\n\n[Respond in 2-3 sentences maximum. Short and sharp.]'
+        : transcript;
+      conversationHistory.push({ role: 'user', content });
 
-        try {
-          const reply = await callClaude(systemPrompt, conversationHistory, botType === 'facilitator' ? (detailed ? 500 : 150) : 400);
-          conversationHistory.push({ role: 'assistant', content: reply });
-          sessionTranscript.push(`BOT: ${reply}`);
-          ws.send(JSON.stringify({ type: 'response_text', text: reply }));
-          await textToSpeechSentences(reply, ws);
-          isProcessing = false;
-        } catch (e) { console.error('Claude error:', e); isProcessing = false; }
-      });
-      ws.send(JSON.stringify({ type: 'listening_started' }));
-    }
-
-    if (msg.type === 'audio_chunk' && deepgramWs?.readyState === WebSocket.OPEN) {
-      deepgramWs.send(Buffer.from(msg.data, 'base64'));
-    }
-
-    if (msg.type === 'stop_listening') {
-      deepgramWs?.close(); deepgramWs = null;
-      ws.send(JSON.stringify({ type: 'listening_stopped' }));
+      try {
+        const reply = await callClaude(systemPrompt, conversationHistory, botType === 'facilitator' ? 150 : 400);
+        conversationHistory.push({ role: 'assistant', content: reply });
+        sessionTranscript.push(`BOT: ${reply}`);
+        ws.send(JSON.stringify({ type: 'response_text', text: reply }));
+        await textToSpeechSentences(reply, ws);
+        isProcessing = false;
+      } catch (e) { console.error('Claude error:', e); isProcessing = false; }
     }
 
     if (msg.type === 'text_input') {
@@ -617,7 +616,6 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
-    deepgramWs?.close();
     console.log(`[${botType}] ${wsUser.name} disconnected`);
   });
 });
@@ -677,15 +675,9 @@ app.post('/api/speak', auth.requireAuthApi(['client', 'facilitator', 'admin']), 
       const err = await response.text();
       return res.status(500).json({ error: err });
     }
-    // Collect complete buffer before sending — ensures client receives
-    // the full MP3 in one response body, no mid-stream stall.
-    const chunks = [];
-    for await (const chunk of response.body) chunks.push(Buffer.from(chunk));
-    const audio = Buffer.concat(chunks);
     res.set('Content-Type', 'audio/mpeg');
     res.set('Cache-Control', 'no-cache');
-    res.set('Content-Length', audio.length);
-    res.send(audio);
+    response.body.pipe(res);
   } catch(e) {
     console.error('speak error:', e);
     res.status(500).json({ error: e.message });
