@@ -182,6 +182,29 @@ async function getDb() {
     FOREIGN KEY (facilitator_id) REFERENCES facilitators(id)
   )`);
 
+  db.run(`CREATE TABLE IF NOT EXISTS user_favourites (
+    id TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL,
+    file_id TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(client_id, file_id)
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS user_playlists (
+    id TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS user_playlist_items (
+    id TEXT PRIMARY KEY,
+    playlist_id TEXT NOT NULL,
+    file_id TEXT NOT NULL,
+    sort_order INTEGER DEFAULT 0,
+    FOREIGN KEY (playlist_id) REFERENCES user_playlists(id)
+  )`);
+
   db.run(`CREATE TABLE IF NOT EXISTS guest_leads (
     id TEXT PRIMARY KEY,
     name TEXT,
@@ -561,6 +584,59 @@ function recordPlay(id, userId, userType, contentType, contentId) {
     [id, userId, userType, contentType, contentId]); save();
 }
 
+// ── Seed default content categories ──
+function seedContentCategories() {
+  const existing = queryAll('SELECT * FROM categories WHERE parent_id IS NULL');
+  const names = ['Courses', 'One-to-one session material', 'Guided practice tracks', 'Written material and information videos'];
+  names.forEach(name => {
+    if (!existing.find(c => c.name === name)) {
+      const id   = 'seed-' + name.toLowerCase().replace(/[^a-z0-9]+/g,'-');
+      const slug = id + '-' + Date.now();
+      try { getDbSync().run('INSERT INTO categories (id,name,slug,parent_id,sort_order) VALUES (?,?,?,NULL,0)', [id, name, slug]); save(); } catch(e) {}
+    }
+  });
+}
+
+// ── User favourites ──
+function addFavourite(id, clientId, fileId) {
+  try { getDbSync().run('INSERT OR IGNORE INTO user_favourites (id,client_id,file_id) VALUES (?,?,?)', [id, clientId, fileId]); save(); } catch(e) {}
+}
+function removeFavourite(clientId, fileId) {
+  getDbSync().run('DELETE FROM user_favourites WHERE client_id=? AND file_id=?', [clientId, fileId]); save();
+}
+function getFavourites(clientId) {
+  return queryAll(`SELECT lf.*, 1 as is_favourite FROM library_files lf
+    JOIN user_favourites uf ON lf.id = uf.file_id
+    WHERE uf.client_id=? ORDER BY uf.created_at DESC`, [clientId]);
+}
+
+// ── User playlists ──
+function createUserPlaylist(id, clientId, name) {
+  getDbSync().run('INSERT INTO user_playlists (id,client_id,name) VALUES (?,?,?)', [id, clientId, name]); save();
+}
+function getUserPlaylists(clientId) {
+  const lists = queryAll('SELECT * FROM user_playlists WHERE client_id=? ORDER BY created_at DESC', [clientId]);
+  return lists.map(pl => ({
+    ...pl,
+    items: queryAll(`SELECT lf.*, upi.sort_order FROM library_files lf
+      JOIN user_playlist_items upi ON lf.id=upi.file_id
+      WHERE upi.playlist_id=? ORDER BY upi.sort_order ASC`, [pl.id])
+  }));
+}
+function addToUserPlaylist(id, playlistId, fileId, sortOrder) {
+  getDbSync().run('INSERT OR IGNORE INTO user_playlist_items (id,playlist_id,file_id,sort_order) VALUES (?,?,?,?)', [id, playlistId, fileId, sortOrder]); save();
+}
+function removeFromUserPlaylist(playlistId, fileId) {
+  getDbSync().run('DELETE FROM user_playlist_items WHERE playlist_id=? AND file_id=?', [playlistId, fileId]); save();
+}
+function deleteUserPlaylist(id) {
+  getDbSync().run('DELETE FROM user_playlist_items WHERE playlist_id=?', [id]);
+  getDbSync().run('DELETE FROM user_playlists WHERE id=?', [id]); save();
+}
+function renameUserPlaylist(id, name) {
+  getDbSync().run('UPDATE user_playlists SET name=? WHERE id=?', [name, id]); save();
+}
+
 // ── Self-registration ──
 function registerUser(id, name, email, passwordHash) {
   getDbSync().run(
@@ -705,6 +781,12 @@ module.exports = {
   assignProgramme, getProgrammesForUser,
   // History
   recordPlay,
+  // Content categories seed
+  seedContentCategories,
+  // Favourites
+  addFavourite, removeFavourite, getFavourites,
+  // User playlists
+  createUserPlaylist, getUserPlaylists, addToUserPlaylist, removeFromUserPlaylist, deleteUserPlaylist, renameUserPlaylist,
   // Registration
   registerUser, getUserByEmail, upgradeToMember, markAsClient,
   // Content visibility

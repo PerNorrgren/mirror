@@ -7,6 +7,7 @@ const multer     = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const fetch      = require('node-fetch');
 const cookieParser = require('cookie-parser');
+const crypto       = require('crypto');
 const db         = require('./db');
 const auth       = require('./auth');
 const prompts    = require('./prompts');
@@ -489,8 +490,6 @@ app.delete('/api/clients/:id', auth.requireAuthApi(['admin']), (req, res) => {
 });
 
 // ── Invitation flow ──
-const crypto = require('crypto');
-
 // Send invitation — facilitator invites a user by email
 app.post('/api/invitations', auth.requireAuthApi(['facilitator','admin']), async (req, res) => {
   try {
@@ -584,6 +583,63 @@ app.post('/api/admin/guest-leads/:id/convert', auth.requireAuthApi(['admin']), a
   } catch(e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ── Client content endpoints ──
+app.get('/api/client/content', auth.requireAuthApi(['client','facilitator','admin']), (req, res) => {
+  try {
+    const client = req.user.role === 'client' ? db.getClient(req.user.id) : null;
+    const userFlags = {
+      isRegistered:  true,
+      isMember:      client?.is_member === 1,
+      isClient:      client?.is_client === 1,
+      isFacilitator: req.user.role === 'facilitator' || req.user.role === 'admin',
+      isAdmin:       req.user.role === 'admin',
+    };
+    const files = db.getAllLibraryFilesWithAccess(userFlags);
+    const favIds = new Set(db.getFavourites(req.user.id).map(f => f.id));
+    res.json(files.map(f => ({ ...f, is_favourite: favIds.has(f.id) })));
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Favourites
+app.post('/api/client/favourites/:fileId', auth.requireAuthApi(['client']), (req, res) => {
+  db.addFavourite(uuidv4(), req.user.id, req.params.fileId);
+  res.json({ ok: true });
+});
+app.delete('/api/client/favourites/:fileId', auth.requireAuthApi(['client']), (req, res) => {
+  db.removeFavourite(req.user.id, req.params.fileId);
+  res.json({ ok: true });
+});
+
+// User playlists
+app.get('/api/client/playlists', auth.requireAuthApi(['client']), (req, res) => {
+  res.json(db.getUserPlaylists(req.user.id));
+});
+app.post('/api/client/playlists', auth.requireAuthApi(['client']), (req, res) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: 'Name required.' });
+  const id = uuidv4();
+  db.createUserPlaylist(id, req.user.id, name.trim());
+  res.json({ id, name: name.trim() });
+});
+app.patch('/api/client/playlists/:id', auth.requireAuthApi(['client']), (req, res) => {
+  const { name } = req.body;
+  if (name) db.renameUserPlaylist(req.params.id, name.trim());
+  res.json({ ok: true });
+});
+app.delete('/api/client/playlists/:id', auth.requireAuthApi(['client']), (req, res) => {
+  db.deleteUserPlaylist(req.params.id);
+  res.json({ ok: true });
+});
+app.post('/api/client/playlists/:id/items', auth.requireAuthApi(['client']), (req, res) => {
+  const { fileId, sortOrder } = req.body;
+  db.addToUserPlaylist(uuidv4(), req.params.id, fileId, sortOrder || 0);
+  res.json({ ok: true });
+});
+app.delete('/api/client/playlists/:id/items/:fileId', auth.requireAuthApi(['client']), (req, res) => {
+  db.removeFromUserPlaylist(req.params.id, req.params.fileId);
+  res.json({ ok: true });
 });
 
 // ── Admin user management ──
