@@ -142,7 +142,7 @@
           <select class="filter" id="libSub" onchange="filterLib()"><option value="">All subcategories</option></select>
           <select class="filter" id="libVis" onchange="filterLib()">
             <option value="">All visibility</option>
-            <option value="registered">Registered</option>
+            <option value="registered">Explorer</option>
             <option value="member">Member</option>
             <option value="client">Client</option>
             <option value="facilitator">Facilitator</option>
@@ -197,7 +197,7 @@
         <label>Default visibility</label>
         <select id="upVisDefault" oninput="applyBatchVisibility(this.value)">
           <option value="">Per file</option>
-          <option value="registered">Registered</option>
+          <option value="registered">Explorer</option>
           <option value="member">Member</option>
           <option value="client">Client</option>
           <option value="facilitator">Facilitator</option>
@@ -237,7 +237,7 @@
     </div>
     <div><label>Visibility</label>
       <select id="efVis">
-        <option value="registered">Registered — anyone who has signed up (free)</option>
+        <option value="registered">Explorer — anyone who has signed up (free)</option>
         <option value="member">Member — paying or upgraded accounts</option>
         <option value="client">Client — facilitator-assigned clients</option>
         <option value="facilitator">Facilitator — facilitators only</option>
@@ -308,7 +308,7 @@
     </div>
     <div><label>Visibility</label>
       <select id="alVis">
-        <option value="registered">Registered</option>
+        <option value="registered">Explorer</option>
         <option value="member">Member</option>
         <option value="client">Client</option>
         <option value="facilitator">Facilitator</option>
@@ -419,7 +419,7 @@ async function updateVisibility(fileId, vis) {
   if (f) f.visibility = vis;
 }
 
-function vbadge(v){const m={registered:'Registered',member:'Member',client:'Client',facilitator:'Facilitator',admin:'Admin'};return`<span class="vis-badge vis-${v}">${m[v]||v}</span>`;}
+function vbadge(v){const m={registered:'Explorer',member:'Member',client:'Client',facilitator:'Facilitator',admin:'Admin'};return`<span class="vis-badge vis-${v}">${m[v]||v}</span>`;}
 
 function populateCatSels(...ids){
   const tops=allCats.filter(c=>!c.parent_id);
@@ -479,7 +479,7 @@ function renderLib(files){
           ${f.category_name?`<span class="tag cat">${f.category_name}</span>`:''}
           ${f.subcategory_name?`<span class="tag cat">${f.subcategory_name}</span>`:''}
           <select class="vis-sel" style="font-size:11px;padding:2px 6px;height:22px" onchange="updateVisibility('${f.id}',this.value)">
-            <option value="registered" ${f.visibility==='registered'?'selected':''}>Registered</option>
+            <option value="registered" ${f.visibility==='registered'?'selected':''}>Explorer</option>
             <option value="member"     ${f.visibility==='member'    ?'selected':''}>Member</option>
             <option value="client"     ${f.visibility==='client'    ?'selected':''}>Client</option>
             <option value="facilitator"${f.visibility==='facilitator'?'selected':''}>Facilitator</option>
@@ -597,7 +597,7 @@ function renderQ(){
         <div style="font-size:10px;color:rgba(255,255,255,0.2);margin-top:2px">${fsize(it.file.size)}${inferredLabel}</div>
       </div>
       <select class="vis-sel" onchange="upQueue[${i}].vis=this.value;upQueue[${i}].inferred=false">
-        <option value="registered"${it.vis==='registered'?' selected':''}>Registered</option>
+        <option value="registered"${it.vis==='registered'?' selected':''}>Explorer</option>
         <option value="member"${it.vis==='member'?' selected':''}>Member</option>
         <option value="client"${it.vis==='client'?' selected':''}>Client</option>
         <option value="facilitator"${it.vis==='facilitator'?' selected':''}>Facilitator</option>
