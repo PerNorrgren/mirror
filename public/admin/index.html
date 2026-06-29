@@ -513,8 +513,8 @@
 
   async function loadAdmins() {
     adminSel.clear();
-    const res  = await fetch('/api/admin/facilitators');
-    _adminData = (await res.json()).filter(f => f.role === 'admin');
+    const res  = await fetch('/api/admin/admins');
+    _adminData = await res.json();
     renderAdmins();
   }
 
