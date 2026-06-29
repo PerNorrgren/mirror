@@ -159,6 +159,22 @@
     </div>
 
 
+    <!-- Members -->
+    <div>
+      <div class="section-label">Members</div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Members</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn sm disabled" id="memberEditBtn" onclick="editSelectedMember()">Edit</button>
+            <button class="btn sm danger disabled" id="memberDelBtn" onclick="deleteSelectedMembers()">Delete</button>
+          </div>
+        </div>
+        <div class="card-search-wrap"><input class="card-search" id="memberSearch" placeholder="Search members… (* and ? wildcards)" oninput="renderMembers()"/></div>
+        <div class="table" id="membersTable"><div class="loading">Loading…</div></div>
+      </div>
+    </div>
+
     <!-- Users — self-registered -->
     <div>
       <div class="section-label">Explorers</div>
@@ -810,6 +826,61 @@
   }
 
   // ══════════════════════════════════════════
+  // ══════════════════════════════════════════
+  // ── MEMBERS ──
+  // ══════════════════════════════════════════
+  let _memberData = [];
+  const memberSel = makeSelection(['memberEditBtn','memberDelBtn'], 'memberEditBtn');
+
+  async function loadMembers() {
+    memberSel.clear();
+    const res   = await fetch('/api/admin/users');
+    _memberData = (await res.json()).filter(u => u.is_member === 1);
+    renderMembers();
+  }
+
+  function renderMembers() {
+    memberSel.clear();
+    const el    = document.getElementById('membersTable');
+    const query = document.getElementById('memberSearch').value.trim();
+    const s     = getSort('member');
+    let list    = _memberData.filter(u => matchesSearch(u, query, ['name','email','facilitator_name']));
+    if (s.col) list = [...list].sort((a,b) => { const av=(a[s.col]||'').toLowerCase(),bv=(b[s.col]||'').toLowerCase(); return av<bv?-s.dir:av>bv?s.dir:0; });
+    if (!list.length) { el.innerHTML = '<div class="empty">No members yet.</div>'; return; }
+    el.innerHTML =
+      `<div class="table-hdr">
+        <div class="col-cb"><input type="checkbox" id="memberAllCb" onchange="memberSel.toggleAll('membersTable',this)"/></div>
+        <div class="table-hdr-cell col-name" onclick="memberSort('name')">Name ${sortIndicator('member','name')}</div>
+        <div class="table-hdr-cell col-email" onclick="memberSort('email')">Email ${sortIndicator('member','email')}</div>
+        <div class="table-hdr-cell col-level">Level</div>
+        <div class="table-hdr-cell col-fac" onclick="memberSort('facilitator_name')">Facilitator ${sortIndicator('member','facilitator_name')}</div>
+      </div>` +
+      list.map(u => `
+        <div class="table-row">
+          <div class="col-cb"><input class="row-cb" type="checkbox" value="${u.id}" onchange="memberSel.toggle('${u.id}',this.checked)"/></div>
+          <div class="col-name">${u.name}</div>
+          <div class="col-email">${u.email||'—'}</div>
+          <div class="col-level">
+            <span class="status-badge status-active">Member</span>
+            ${u.is_client?'<span class="status-badge status-active" style="margin-left:4px">Client</span>':''}
+          </div>
+          <div class="col-fac">${u.facilitator_name||'—'}</div>
+        </div>`).join('');
+  }
+  function memberSort(col) { setSort('member', col); renderMembers(); }
+
+  function editSelectedMember() {
+    const id = [...memberSel.sel][0]; if (!id) return;
+    const u  = _memberData.find(x => x.id === id); if (!u) return;
+    upgradeSelected([id], u.name, u.membership_level);
+  }
+  async function deleteSelectedMembers() {
+    const ids = [...memberSel.sel]; if (!ids.length) return;
+    showConfirm('Delete member'+(ids.length>1?'s':''),
+      `Permanently delete ${ids.length} member${ids.length>1?'s':''}? Cannot be undone.`,
+      async() => { await Promise.all(ids.map(id => fetch(`/api/clients/${id}`, {method:'DELETE'}))); loadMembers(); loadUsers(); });
+  }
+
   // ── REGISTERED EXPLORERS ──
   // ══════════════════════════════════════════
   let _userData = [];
@@ -869,7 +940,7 @@
     try {
       await Promise.all(ids.map(id=>fetch(`/api/admin/users/${id}/upgrade`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({level})})));
       if (facId) await Promise.all(ids.map(id=>fetch(`/api/admin/users/${id}/assign-facilitator`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({facilitatorId:facId})})));
-      closeModal('upgradeModal'); userSel.clear(); loadUsers();
+      closeModal('upgradeModal'); userSel.clear(); loadUsers(); loadMembers();
     } catch(e) { document.getElementById('upgradeErr').textContent='Error: '+e.message; }
   }
   async function deleteSelectedUsers() {
@@ -944,6 +1015,8 @@
   loadAdmins();
   loadFacilitators();
   loadClients();
+  loadMembers();
+  loadMembers();
   loadUsers();
   loadLeads();
 </script>
