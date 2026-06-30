@@ -671,6 +671,24 @@
   // Mini player state
   let mpAudio = null;
 
+  // ── ID-based lookups, replacing embedded JSON in onclick attributes ──
+  // Previously, mpPlay/openContentFile were called as onclick="mpPlay(${JSON.stringify(f)})",
+  // which serializes the full file object — including its title, description, and signed
+  // R2 URL — directly into an HTML attribute string. Any quote, apostrophe, or special
+  // character in that data breaks the attribute boundary and the browser parses the
+  // truncated remainder as a syntax-error script (this is what caused the "Unexpected
+  // end of input" error — found via Sources tab, traced to the literal onclick attribute
+  // itself, not the page's actual script). Passing only the ID and looking the file up
+  // here is both safer and avoids re-serializing large objects into the DOM repeatedly.
+  function mpPlayById(id) {
+    const f = _contentData.find(x => x.id === id) || _userPlaylists.flatMap(p => p.items).find(x => x.id === id);
+    if (f) mpPlay(f);
+  }
+  function openContentFileById(id) {
+    const f = _contentData.find(x => x.id === id);
+    if (f) openContentFile(f);
+  }
+
   function fmtTime(s) {
     s = Math.floor(s||0);
     return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0');
@@ -777,10 +795,10 @@
     const icon  = isAudio(f) ? '🎵' : f.file_type?.startsWith('video') ? '🎬' : '📄';
     const heart = `<button class="heart-btn ${f.is_favourite?'active':''}" onclick="event.stopPropagation();toggleFavourite('${f.id}',this)" title="Favourite">♥</button>`;
     const play  = isAudio(f)
-      ? `<button class="play-btn" data-file-id="${f.id}" onclick="event.stopPropagation();mpPlay(${JSON.stringify(f)})" title="Play">▶</button>`
+      ? `<button class="play-btn" data-file-id="${f.id}" onclick="event.stopPropagation();mpPlayById('${f.id}')" title="Play">▶</button>`
       : '';
     const addPl = `<button class="play-btn" style="font-size:9px" onclick="event.stopPropagation();openAddToPlaylist('${f.id}')" title="Add to playlist">＋</button>`;
-    return `<div class="content-item" onclick="event.stopPropagation();openContentFile(${JSON.stringify(f)})">
+    return `<div class="content-item" onclick="event.stopPropagation();openContentFileById('${f.id}')">
       <span class="content-icon">${icon}</span>
       <div style="flex:1;min-width:0">
         <div class="content-title">${f.title}</div>
@@ -864,7 +882,7 @@
           <div class="content-item" style="padding:7px 13px 7px 36px">
             <span class="content-icon">🎵</span>
             <div class="content-title">${item.title}</div>
-            <button class="play-btn" data-file-id="${item.id}" onclick="event.stopPropagation();mpPlay(${JSON.stringify(item)})">▶</button>
+            <button class="play-btn" data-file-id="${item.id}" onclick="event.stopPropagation();mpPlayById('${item.id}')">▶</button>
             <button onclick="event.stopPropagation();removeFromPlaylist('${pl.id}','${item.id}')" style="background:none;border:none;color:rgba(255,255,255,0.2);cursor:pointer;font-size:13px;padding:2px 4px">×</button>
           </div>`).join('')}
       </div>`).join('');
