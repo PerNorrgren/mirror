@@ -131,6 +131,22 @@ Generate a summary with these sections (keep each brief):
 
 Keep the whole summary under 200 words. Plain, factual, clinical.`;
 
+const GENERATE_CLIENT_SUMMARY = (clinicalSummary) => `
+You are rewriting a clinical session summary into a short note for the client themselves to read.
+
+CLINICAL SUMMARY (facilitator's private record — do not reproduce this directly):
+${clinicalSummary}
+
+Write a short note (under 120 words) for the client in the FELT·FIBRE plain voice:
+- Plain language, short sentences, one idea at a time, Gunning Fog 6–8
+- Warm without being soft, direct without being clinical
+- No diagnostic language, no jargon, no fibre/signal/prior terminology by name
+- Speak to what was noticed and what's worth carrying forward, not what was "wrong"
+- Never reference session numbers, clinical assessments, or working interpretations directly
+- End with one simple, concrete thing to carry into the coming days — not a homework assignment, an invitation
+
+This will be read by the client themselves. Write directly to them, second person, warm and plain.`;
+
 const GENERATE_ARC_UPDATE = (currentArc, recentSummaries) => `
 Based on the current arc and recent session summaries, suggest an updated arc statement.
 
@@ -155,5 +171,6 @@ module.exports = {
   CLIENT_ARC_PREFIX,
   FACILITATOR_SYSTEM_PROMPT,
   GENERATE_SESSION_SUMMARY,
+  GENERATE_CLIENT_SUMMARY,
   GENERATE_ARC_UPDATE,
 };

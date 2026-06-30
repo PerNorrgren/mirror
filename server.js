@@ -800,6 +800,201 @@ listenWss.on('connection', (clientWs) => {
   clientWs.on('close',   () => { if (dgWs.readyState === WebSocket.OPEN) dgWs.close(); });
 });
 
+// ── Facilitator clinical co-pilot — live WebSocket conversation during a session ──
+// Connects at root path with ?type=facilitator&client=CLIENT_ID
+// This is NOT a bridge to the client's own conversation — the client and facilitator
+// are meeting separately (Zoom/Teams/in person). This is the facilitator's own private
+// supervision-style conversation with Per Bot, running alongside that meeting.
+function parseCookies(header) {
+  const out = {};
+  if (!header) return out;
+  header.split(';').forEach(part => {
+    const idx = part.indexOf('=');
+    if (idx === -1) return;
+    out[part.slice(0, idx).trim()] = decodeURIComponent(part.slice(idx + 1).trim());
+  });
+  return out;
+}
+
+const facilitatorWss = new WebSocket.Server({ noServer: true });
+
+server.on('upgrade', (req, socket, head) => {
+  const { pathname, searchParams } = new URL(req.url, `http://${req.headers.host}`);
+  if (pathname !== '/' || searchParams.get('type') !== 'facilitator') return; // not our route — let ws's own /listen handler take it
+
+  const cookies = parseCookies(req.headers.cookie);
+  const payload = auth.verifyToken(cookies[auth.COOKIE_NAME]);
+  if (!payload || !['facilitator', 'admin'].includes(payload.role)) {
+    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+
+  const clientId = searchParams.get('client');
+  const client = clientId ? db.getClient(clientId) : null;
+  if (!client) {
+    socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+
+  facilitatorWss.handleUpgrade(req, socket, head, (ws) => {
+    facilitatorWss.emit('connection', ws, { facilitatorId: payload.id, facilitatorName: payload.name, client });
+  });
+});
+
+facilitatorWss.on('connection', (ws, ctx) => {
+  const { facilitatorId, client } = ctx;
+  let fogLevel = 12;
+  let history = []; // { role: 'user'|'assistant', content: string } — this facilitator's own conversation, not the client's
+
+  // Deepgram connection for this facilitator's voice input — opened lazily on start_listening
+  let dgWs = null;
+
+  function send(obj) { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); }
+
+  async function respond(userText, { explain = false } = {}) {
+    try {
+      const systemPrompt = prompts.FACILITATOR_SYSTEM_PROMPT(fogLevel);
+      const promptText = explain
+        ? `Explain to me: ${userText || 'what is happening clinically right now, based on what I have described so far.'}`
+        : userText;
+      history.push({ role: 'user', content: promptText });
+      const reply = await callClaude(systemPrompt, history, 500);
+      history.push({ role: 'assistant', content: reply });
+      send({ type: explain ? 'explanation' : 'response_text', text: reply });
+
+      // Voice playback for the facilitator, same TTS pipeline as the client uses
+      try {
+        const ttsRes = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'xi-api-key': ELEVENLABS_API_KEY },
+          body: JSON.stringify({
+            text: reply,
+            model_id: 'eleven_multilingual_v2',
+            voice_settings: { stability: 0.65, similarity_boost: 0.80, speed: VOICE_SPEED }
+          })
+        });
+        if (ttsRes.ok) {
+          const buf = await ttsRes.buffer();
+          send({ type: 'audio', data: buf.toString('base64') });
+        }
+      } catch (e) { console.error('facilitator tts error:', e.message); }
+    } catch (e) {
+      console.error('facilitator respond error:', e.message);
+      send({ type: 'response_text', text: 'Something went wrong generating that response. Please try again.' });
+    }
+  }
+
+  ws.on('message', async (raw) => {
+    let msg;
+    try { msg = JSON.parse(raw); } catch { return; }
+
+    switch (msg.type) {
+      case 'set_fog':
+        fogLevel = msg.level || 12;
+        break;
+
+      case 'text_input':
+        await respond(msg.text, { explain: false });
+        break;
+
+      case 'explain':
+        await respond('', { explain: true });
+        break;
+
+      case 'start_listening': {
+        send({ type: 'listening_started' });
+        dgWs = new WebSocket(
+          'wss://api.deepgram.com/v1/listen?model=nova-2&language=multi&encoding=opus&sample_rate=48000&channels=1&smart_format=true&endpointing=400&utterance_end_ms=1200&interim_results=false',
+          { headers: { Authorization: `Token ${DEEPGRAM_API_KEY}` } }
+        );
+        dgWs.on('message', async (data) => {
+          try {
+            const parsed = JSON.parse(data.toString('utf8'));
+            const transcript = parsed?.channel?.alternatives?.[0]?.transcript;
+            if (transcript && transcript.trim() && parsed.speech_final) {
+              send({ type: 'final_transcript', text: transcript });
+              await respond(transcript, { explain: false });
+            }
+          } catch { /* non-JSON or partial frame — ignore */ }
+        });
+        dgWs.on('error', (e) => console.error('facilitator deepgram error:', e.message));
+        break;
+      }
+
+      case 'audio_chunk':
+        if (dgWs && dgWs.readyState === WebSocket.OPEN && msg.data) {
+          dgWs.send(Buffer.from(msg.data, 'base64'));
+        }
+        break;
+
+      case 'stop_listening':
+        send({ type: 'listening_stopped' });
+        if (dgWs) { try { dgWs.close(); } catch {} dgWs = null; }
+        break;
+
+      case 'update_arc':
+        if (msg.arc != null) {
+          db.updateArc(client.id, msg.arc);
+          send({ type: 'arc_updated' });
+        }
+        break;
+
+      case 'end_session': {
+        try {
+          const transcript = history
+            .filter(h => h.role === 'user')
+            .map(h => h.content)
+            .join('\n\n');
+
+          if (!transcript.trim()) {
+            send({ type: 'session_summary', summary: 'No notes were recorded during this session.', clientSummary: '', arcUpdate: null });
+            break;
+          }
+
+          const clinicalSummary = await callClaude(
+            'You are generating a clinical session summary. Be precise and factual.',
+            [{ role: 'user', content: prompts.GENERATE_SESSION_SUMMARY(transcript, client.arc, 'facilitator') }],
+            500
+          );
+
+          const clientSummary = await callClaude(
+            'You are rewriting a clinical summary into a short, warm note for the client to read themselves.',
+            [{ role: 'user', content: prompts.GENERATE_CLIENT_SUMMARY(clinicalSummary) }],
+            300
+          );
+
+          const arcUpdate = await callClaude(
+            'You are updating a clinical arc/development plan based on session notes.',
+            [{ role: 'user', content: prompts.GENERATE_ARC_UPDATE(client.arc, clinicalSummary) }],
+            300
+          );
+
+          // Save now as the private clinical record. client_summary stays empty until the
+          // facilitator explicitly reviews and releases it — see /api/sessions/:id/release.
+          const sessionId = uuidv4();
+          db.addSession(sessionId, client.id, facilitatorId, 'facilitator', clinicalSummary, '');
+
+          send({
+            type: 'session_summary',
+            sessionId,
+            summary: clinicalSummary,
+            clientSummary,
+            arcUpdate
+          });
+        } catch (e) {
+          console.error('end_session error:', e.message);
+          send({ type: 'response_text', text: 'Something went wrong generating the session summary. Please try again.' });
+        }
+        break;
+      }
+    }
+  });
+
+  ws.on('close', () => { if (dgWs) { try { dgWs.close(); } catch {} } });
+});
+
 // ── Content API ──
 app.get('/admin/content',  auth.requireAuth(['admin']), (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin', 'content.html')));
 app.get('/admin/content/', auth.requireAuth(['admin']), (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin', 'content.html')));
