@@ -34,6 +34,15 @@ const client = configured
       region: 'auto',
       endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
       credentials: { accessKeyId: R2_ACCESS_KEY, secretAccessKey: R2_SECRET_KEY },
+      // Force path-style addressing (endpoint.com/bucket/key) instead of the AWS SDK v3
+      // default of virtual-hosted-style (bucket.endpoint.com/key). The SDK was rewriting
+      // our configured endpoint into a bucket-subdomain form (per-bot-media.ACCOUNT_ID.
+      // r2.cloudflarestorage.com), and R2 returned SignatureDoesNotMatch against that form
+      // — the canonical request R2 validated against showed method GET even though the
+      // browser correctly sent PUT, which is exactly the kind of mismatch virtual-hosted-
+      // style routing through a CDN layer can cause. Path-style is also the form
+      // Cloudflare's own R2 + S3 SDK documentation recommends.
+      forcePathStyle: true,
       // R2 is S3-compatible but doesn't fully support the newer AWS SDK's "flexible
       // checksums" feature (it adds x-amz-checksum-crc32 / x-amz-sdk-checksum-algorithm
       // headers to every PutObject by default as of recent SDK versions). Left enabled,
