@@ -34,6 +34,15 @@ const client = configured
       region: 'auto',
       endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
       credentials: { accessKeyId: R2_ACCESS_KEY, secretAccessKey: R2_SECRET_KEY },
+      // R2 is S3-compatible but doesn't fully support the newer AWS SDK's "flexible
+      // checksums" feature (it adds x-amz-checksum-crc32 / x-amz-sdk-checksum-algorithm
+      // headers to every PutObject by default as of recent SDK versions). Left enabled,
+      // presigned PUT uploads from the browser would hang/timeout against R2's endpoint
+      // with no error — exactly the symptom found during testing (upload stuck on
+      // "Uploading..." with ERR_TIMED_OUT in the browser console, reproduced on multiple
+      // file sizes, so not a fluke). Disabling request checksum calculation avoids R2
+      // ever being sent headers it doesn't handle correctly.
+      requestChecksumCalculation: 'WHEN_REQUIRED',
     })
   : null;
 

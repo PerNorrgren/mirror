@@ -766,9 +766,17 @@ function inferFromFilename(name) {
 }
 
 function addToQ(files){
+  const facResourceMode = document.getElementById('upFacResource').checked;
+  const headerVis = document.getElementById('upVisDefault').value;
   Array.from(files).forEach(f=>{
     const inferred = inferFromFilename(f.name);
-    upQueue.push({file:f, vis:inferred.vis, catId:inferred.catId, subId:inferred.subId, inferred:true});
+    // If Facilitator-resource mode is on, every file — including ones added after the
+    // checkbox was ticked — must start at 'facilitator' visibility, never something
+    // inferred from the filename. Otherwise, the header's "Default visibility" selector
+    // (if set to something specific) is the explicit starting point; per-file should only
+    // diverge from it on purpose, not by accident of when the file was added.
+    const vis = facResourceMode ? 'facilitator' : (headerVis || inferred.vis);
+    upQueue.push({file:f, vis, catId:inferred.catId, subId:inferred.subId, inferred: !facResourceMode && !headerVis});
   });
   renderQ();
 }
