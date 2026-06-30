@@ -245,6 +245,7 @@ async function getDb() {
     "ALTER TABLE clients ADD COLUMN lawful_basis TEXT",
     "ALTER TABLE clients ADD COLUMN data_retention_until TEXT",
     "ALTER TABLE library_files ADD COLUMN storage_type TEXT DEFAULT 'disk'",
+    "ALTER TABLE library_files ADD COLUMN archived INTEGER DEFAULT 0",
   ];
   migrations.forEach(sql => {
     try { db.run(sql); } catch(e) { /* column already exists — ignore */ }
@@ -385,6 +386,7 @@ function getLibraryFiles(filters = {}) {
     LEFT JOIN categories sub ON f.subcategory_id=sub.id
     WHERE 1=1`;
   const params = [];
+  if (!filters.includeArchived) sql += ' AND f.archived=0';
   if (filters.categoryId)    { sql += ' AND f.category_id=?';    params.push(filters.categoryId); }
   if (filters.subcategoryId) { sql += ' AND f.subcategory_id=?'; params.push(filters.subcategoryId); }
   if (filters.visibility)    { sql += ' AND f.visibility=?';     params.push(filters.visibility); }
@@ -404,6 +406,11 @@ function updateLibraryFile(id, fields) {
 
 function renameLibraryFile(id, filename) {
   getDbSync().run('UPDATE library_files SET filename=? WHERE id=?', [filename, id]);
+  save();
+}
+
+function archiveLibraryFile(id, archived) {
+  getDbSync().run('UPDATE library_files SET archived=? WHERE id=?', [archived ? 1 : 0, id]);
   save();
 }
 
@@ -736,13 +743,13 @@ function canSeeFile(file, userLevel) {
 
 function getLibraryFilesForUser(userFlags) {
   const level = userMaxLevel(userFlags);
-  const files = queryAll('SELECT * FROM library_files ORDER BY title ASC');
+  const files = queryAll('SELECT * FROM library_files WHERE archived=0 ORDER BY title ASC');
   return files.filter(f => canSeeFile(f, level)).map(f => ({ ...f, accessible: true }));
 }
 
 function getAllLibraryFilesWithAccess(userFlags) {
   const level = userMaxLevel(userFlags);
-  const files = queryAll('SELECT * FROM library_files ORDER BY title ASC');
+  const files = queryAll('SELECT * FROM library_files WHERE archived=0 ORDER BY title ASC');
   return files.map(f => ({ ...f, accessible: canSeeFile(f, level) }));
 }
 
@@ -750,6 +757,7 @@ function getAllLibraryFilesWithAccess(userFlags) {
 // used by the playback-url endpoint so a direct request for one file gets exactly the
 // same tier check as the file would get if it were showing in someone's Content tab.
 function canAccessFile(file, userFlags) {
+  if (file.archived) return false;
   return canSeeFile(file, userMaxLevel(userFlags));
 }
 
@@ -811,7 +819,7 @@ module.exports = {
   createCategory, renameCategory, deleteCategory,
   // Library
   addLibraryFile, getLibraryFile, getLibraryFiles, updateLibraryFile,
-  renameLibraryFile, deleteLibraryFile, getFileUsage,
+  renameLibraryFile, deleteLibraryFile, archiveLibraryFile, getFileUsage,
   // Courses
   createCourse, getCourse, getAllCourses, deleteCourse,
   // Lessons

@@ -1113,10 +1113,65 @@ app.patch('/api/content/library/:id/rename', auth.requireAuthApi(['admin']), (re
     res.json({ ok: true, filename: safe });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.delete('/api/content/library/:id', auth.requireAuthApi(['admin']), (req, res) => {
+app.delete('/api/content/library/:id', auth.requireAuthApi(['admin']), async (req, res) => {
   const file = db.getLibraryFile(req.params.id);
-  if (file) { try { fs.unlinkSync(path.join(__dirname, 'uploads', file.filename)); } catch {} }
+  if (file) {
+    if (file.storage_type === 'r2') {
+      try { await media.deleteObject(file.filename); } catch (e) { console.error('R2 delete error:', e.message); }
+    } else {
+      try { fs.unlinkSync(path.join(__dirname, 'uploads', file.filename)); } catch {}
+    }
+  }
   db.deleteLibraryFile(req.params.id); res.json({ ok: true });
+});
+
+// ── Bulk actions on library files (admin content list/grid toggle) ──
+app.post('/api/content/library/bulk-delete', auth.requireAuthApi(['admin']), async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids required.' });
+    for (const id of ids) {
+      const file = db.getLibraryFile(id);
+      if (file) {
+        if (file.storage_type === 'r2') {
+          try { await media.deleteObject(file.filename); } catch (e) { console.error('R2 delete error:', e.message); }
+        } else {
+          try { fs.unlinkSync(path.join(__dirname, 'uploads', file.filename)); } catch {}
+        }
+      }
+      db.deleteLibraryFile(id);
+    }
+    res.json({ ok: true, deleted: ids.length });
+  } catch (e) {
+    console.error('bulk-delete error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/content/library/bulk-archive', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    const { ids, archived } = req.body;
+    if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids required.' });
+    ids.forEach(id => db.archiveLibraryFile(id, !!archived));
+    res.json({ ok: true, updated: ids.length });
+  } catch (e) {
+    console.error('bulk-archive error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/content/library/bulk-visibility', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    const { ids, visibility } = req.body;
+    const allowed = ['registered','member','client','facilitator','admin'];
+    if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids required.' });
+    if (!allowed.includes(visibility)) return res.status(400).json({ error: 'Invalid visibility value.' });
+    ids.forEach(id => db.updateLibraryFile(id, { visibility }));
+    res.json({ ok: true, updated: ids.length });
+  } catch (e) {
+    console.error('bulk-visibility error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('/api/content/courses', auth.requireAuthApi(['admin','facilitator']), (req, res) => res.json(db.getAllCourses(req.query)));
