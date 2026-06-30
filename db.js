@@ -244,6 +244,7 @@ async function getDb() {
     "ALTER TABLE clients ADD COLUMN consent_version TEXT",
     "ALTER TABLE clients ADD COLUMN lawful_basis TEXT",
     "ALTER TABLE clients ADD COLUMN data_retention_until TEXT",
+    "ALTER TABLE library_files ADD COLUMN storage_type TEXT DEFAULT 'disk'",
   ];
   migrations.forEach(sql => {
     try { db.run(sql); } catch(e) { /* column already exists — ignore */ }
@@ -363,12 +364,12 @@ function renameCategory(id, name) {
 function deleteCategory(id) { getDbSync().run('DELETE FROM categories WHERE id=?', [id]); save(); }
 
 // ── Library files ──
-function addLibraryFile(id, title, description, filename, originalName, fileType, fileSize, categoryId, subcategoryId, visibility) {
+function addLibraryFile(id, title, description, filename, originalName, fileType, fileSize, categoryId, subcategoryId, visibility, storageType) {
   getDbSync().run(`INSERT INTO library_files 
-    (id,title,description,filename,original_name,file_type,file_size,category_id,subcategory_id,visibility)
-    VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    (id,title,description,filename,original_name,file_type,file_size,category_id,subcategory_id,visibility,storage_type)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
     [id, title, description||'', filename, originalName, fileType, fileSize||0,
-     categoryId, subcategoryId||null, visibility||'client']);
+     categoryId, subcategoryId||null, visibility||'client', storageType||'disk']);
   save();
 }
 
@@ -745,6 +746,13 @@ function getAllLibraryFilesWithAccess(userFlags) {
   return files.map(f => ({ ...f, accessible: canSeeFile(f, level) }));
 }
 
+// Exported single-file access check — same cascade logic as the listing functions above,
+// used by the playback-url endpoint so a direct request for one file gets exactly the
+// same tier check as the file would get if it were showing in someone's Content tab.
+function canAccessFile(file, userFlags) {
+  return canSeeFile(file, userMaxLevel(userFlags));
+}
+
 // ── Invitations ──
 function createInvitation(id, token, facilitatorId, email, expiresAt) {
   getDbSync().run(
@@ -834,7 +842,7 @@ module.exports = {
   // Registration
   registerUser, getUserByEmail, upgradeToMember, markAsClient,
   // Content visibility
-  getLibraryFilesForUser, getAllLibraryFilesWithAccess,
+  getLibraryFilesForUser, getAllLibraryFilesWithAccess, canAccessFile,
   // System client
   markAsSystemClient,
   // Invitations

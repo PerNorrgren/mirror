@@ -11,6 +11,7 @@ const crypto       = require('crypto');
 const db         = require('./db');
 const auth       = require('./auth');
 const prompts    = require('./prompts');
+const media      = require('./media');
 
 // ── Config ──
 const ANTHROPIC_API_KEY  = process.env.ANTHROPIC_API_KEY;
@@ -29,7 +30,11 @@ const server = http.createServer(app);
 
 app.use(express.json());
 app.use(cookieParser());
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// NOTE: uploads are served exclusively via the auth-checked /uploads/:filename route below.
+// (Previously this also had an unguarded express.static('/uploads') line ahead of that route,
+// which meant any file could be fetched by anyone who knew or guessed the filename, regardless
+// of tier — Express matches middleware in registration order, so the static middleware served
+// the file before the auth check ever ran. Removed as part of the R2 migration security pass.)
 
 // ── File upload ──
 const storage = multer.diskStorage({
@@ -40,7 +45,11 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => { cb(null, uuidv4() + path.extname(file.originalname)); }
 });
-const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } });
+// NOTE: this limit only matters for the legacy disk-upload fallback path (used if R2 isn't
+// configured, or if the presign step fails). The primary path — browser uploads directly to
+// R2 via a presigned URL — never passes through multer/Express at all, so it has no size
+// ceiling here. Raised generously so the fallback isn't a silent trap during the migration.
+const upload = multer({ storage, limits: { fileSize: 500 * 1024 * 1024 } });
 
 // ── Helpers ──
 function stripMarkdown(text) {
@@ -1013,13 +1022,80 @@ app.patch('/api/content/categories/:id', auth.requireAuthApi(['admin']), (req, r
 app.delete('/api/content/categories/:id', auth.requireAuthApi(['admin']), (req, res) => { db.deleteCategory(req.params.id); res.json({ ok: true }); });
 
 app.get('/api/content/library', auth.requireAuthApi(['admin','facilitator']), (req, res) => res.json(db.getLibraryFiles(req.query)));
-app.post('/api/content/library', auth.requireAuthApi(['admin']), upload.single('file'), (req, res) => {
-  const { title, categoryId, subcategoryId, visibility } = req.body;
-  if (!title || !categoryId || !req.file) return res.status(400).json({ error: 'Missing required fields.' });
-  const id = uuidv4();
-  db.addLibraryFile(id, title.trim(), req.body.description || '', req.file.filename, req.file.originalname, req.file.mimetype, req.file.size, categoryId, subcategoryId || null, visibility || 'client');
-  res.json({ id });
+
+// ── R2 upload — Step 1: get a presigned PUT URL. Browser uploads directly to R2, never through Express. ──
+app.post('/api/content/library/presign-upload', auth.requireAuthApi(['admin']), async (req, res) => {
+  try {
+    if (!media.isConfigured()) return res.status(503).json({ error: 'Media storage is not configured. Set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME.' });
+    const { filename, contentType } = req.body;
+    if (!filename) return res.status(400).json({ error: 'filename required.' });
+    const ext = path.extname(filename);
+    const key = `library/${uuidv4()}${ext}`;
+    const uploadUrl = await media.getUploadUrl(key, contentType || 'application/octet-stream');
+    res.json({ uploadUrl, key });
+  } catch (e) {
+    console.error('presign-upload error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
+
+// ── R2 upload — Step 2: browser has finished uploading directly to R2; save the metadata row. ──
+app.post('/api/content/library', auth.requireAuthApi(['admin']), upload.single('file'), (req, res) => {
+  try {
+    const { title, categoryId, subcategoryId, visibility } = req.body;
+    if (!title || !categoryId) return res.status(400).json({ error: 'Missing required fields.' });
+
+    // Path A — R2 upload already completed client-side; just save the reference.
+    if (req.body.r2Key) {
+      const id = uuidv4();
+      db.addLibraryFile(
+        id, title.trim(), req.body.description || '', req.body.r2Key, req.body.originalName || req.body.r2Key,
+        req.body.contentType || 'application/octet-stream', parseInt(req.body.fileSize) || 0,
+        categoryId, subcategoryId || null, visibility || 'client', 'r2'
+      );
+      return res.json({ id });
+    }
+
+    // Path B — legacy direct-to-disk upload, kept for now so nothing breaks mid-migration.
+    if (!req.file) return res.status(400).json({ error: 'No file provided.' });
+    const id = uuidv4();
+    db.addLibraryFile(id, title.trim(), req.body.description || '', req.file.filename, req.file.originalname, req.file.mimetype, req.file.size, categoryId, subcategoryId || null, visibility || 'client', 'disk');
+    res.json({ id });
+  } catch (e) {
+    console.error('library upload error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Playback URL — checked against the SAME tier-gating logic as the Content tab listing. ──
+// Only generates a (short-lived, signed) R2 URL after access is confirmed. Legacy disk files
+// fall back to the existing /uploads/:filename route, unaffected by this migration.
+app.get('/api/content/library/:id/playback-url', auth.requireAuthApi(['client','facilitator','admin']), async (req, res) => {
+  try {
+    const file = db.getLibraryFile(req.params.id);
+    if (!file) return res.status(404).json({ error: 'Not found.' });
+
+    const clientRec = req.user.role === 'client' ? db.getClient(req.user.id) : null;
+    const userFlags = {
+      isMember:      clientRec?.is_member === 1 || req.user.role !== 'client',
+      isClient:      clientRec?.is_client === 1,
+      isFacilitator: req.user.role === 'facilitator' || req.user.role === 'admin',
+      isAdmin:       req.user.role === 'admin',
+    };
+    if (!db.canAccessFile(file, userFlags)) return res.status(403).json({ error: 'Access denied.' });
+
+    if (file.storage_type === 'r2') {
+      const url = await media.getPlaybackUrl(file.filename);
+      return res.json({ url, expiresIn: 600 });
+    }
+    // Legacy disk file — same URL pattern as before, no change in behaviour.
+    res.json({ url: `/uploads/${file.filename}`, expiresIn: null });
+  } catch (e) {
+    console.error('playback-url error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.patch('/api/content/library/:id', auth.requireAuthApi(['admin']), (req, res) => { db.updateLibraryFile(req.params.id, req.body); res.json({ ok: true }); });
 app.get('/api/content/library/:id/usage', auth.requireAuthApi(['admin']), (req, res) => res.json(db.getFileUsage(req.params.id)));
 app.patch('/api/content/library/:id/rename', auth.requireAuthApi(['admin']), (req, res) => {
@@ -1108,6 +1184,21 @@ app.get('/uploads/:filename', (req, res) => {
 // ── Guest routes ──
 app.get('/guest',  (req, res) => res.sendFile(path.join(__dirname, 'public', 'guest', 'index.html')));
 app.get('/guest/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'guest', 'index.html')));
+
+// ── Error handler — catches multer/upload errors so they return a real message
+// instead of the request just dying silently (this was the original bug: a 54MB
+// upload via the legacy disk path would hit multer's old 50MB limit and the
+// connection would simply drop with no response at all). ──
+app.use((err, req, res, next) => {
+  if (err?.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ error: 'File is too large for the fallback upload path. Try again — uploads normally go directly to storage and have no size limit.' });
+  }
+  if (err) {
+    console.error('Unhandled error:', err.message);
+    return res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+  next();
+});
 
 // ── Start ──
 (async () => {

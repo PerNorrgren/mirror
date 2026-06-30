@@ -588,6 +588,10 @@ function renderQ(){
   document.getElementById('upQueue').innerHTML=upQueue.map((it,i)=>{
     const inferredLabel = it.inferred && (it.catId||it.subId||it.vis!=='client')
       ? `<span style="font-size:10px;color:rgba(180,230,200,0.5);margin-left:4px">↳ ${getCatName(it.catId)||'?'} ${getCatName(it.subId)?'/ '+getCatName(it.subId):''} · ${it.vis}</span>` : '';
+    const progressBar = (it.progress > 0 && it.progress < 100)
+      ? `<div style="height:3px;background:rgba(255,255,255,0.08);border-radius:2px;margin-top:4px;overflow:hidden"><div style="height:100%;width:${it.progress}%;background:rgba(180,230,200,0.5);transition:width 0.15s"></div></div>`
+      : it.progress === 100
+      ? `<div style="font-size:10px;color:rgba(180,230,200,0.6);margin-top:2px">✓ Uploaded</div>` : '';
     return `
     <div class="upload-item" style="flex-wrap:wrap;gap:6px">
       <span style="font-size:16px">${ficon(it.file.type)}</span>
@@ -595,6 +599,7 @@ function renderQ(){
         <input type="text" value="${it.file.name.replace(/\.[^.]+$/,'')}" onchange="upQueue[${i}].customTitle=this.value"
           style="background:none;border:none;border-bottom:1px solid rgba(255,255,255,0.1);color:rgba(255,255,255,0.78);font-size:12px;font-family:Georgia,serif;outline:none;width:100%;padding:2px 0"/>
         <div style="font-size:10px;color:rgba(255,255,255,0.2);margin-top:2px">${fsize(it.file.size)}${inferredLabel}</div>
+        ${progressBar}
       </div>
       <select class="vis-sel" onchange="upQueue[${i}].vis=this.value;upQueue[${i}].inferred=false">
         <option value="registered"${it.vis==='registered'?' selected':''}>Explorer</option>
@@ -608,24 +613,83 @@ function renderQ(){
   }).join('');
 }
 
+async function uploadOneFile(it, cat, sub) {
+  const title = it.customTitle || it.file.name.replace(/\.[^.]+$/,'');
+
+  // Step 1: ask the server for a presigned R2 upload URL.
+  const presignRes = await fetch('/api/content/library/presign-upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename: it.file.name, contentType: it.file.type })
+  });
+
+  if (!presignRes.ok) {
+    // R2 not configured yet, or some other failure — fall back to the legacy
+    // direct-through-Express path so uploads still work during the migration.
+    const fd = new FormData();
+    fd.append('file', it.file);
+    fd.append('title', title);
+    fd.append('categoryId',    cat || it.catId || '');
+    fd.append('subcategoryId', sub || it.subId || '');
+    fd.append('visibility',    it.vis);
+    const res = await fetch('/api/content/library', { method: 'POST', body: fd });
+    if (!res.ok) throw new Error((await res.json().catch(()=>({})))?.error || 'Upload failed.');
+    return;
+  }
+
+  const { uploadUrl, key } = await presignRes.json();
+
+  // Step 2: browser uploads the file directly to R2 — never passes through Express,
+  // so there's no 50MB ceiling here. Track progress via XHR since fetch() doesn't expose
+  // upload progress events.
+  await new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', uploadUrl);
+    xhr.setRequestHeader('Content-Type', it.file.type || 'application/octet-stream');
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) it.progress = Math.round((e.loaded / e.total) * 100);
+      renderQ();
+    };
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve() : reject(new Error(`Upload failed (${xhr.status}).`));
+    xhr.onerror = () => reject(new Error('Upload failed — network error.'));
+    xhr.send(it.file);
+  });
+
+  // Step 3: tell the server the upload succeeded, save the metadata row.
+  const fd = new FormData();
+  fd.append('title', title);
+  fd.append('description', '');
+  fd.append('categoryId',    cat || it.catId || '');
+  fd.append('subcategoryId', sub || it.subId || '');
+  fd.append('visibility',    it.vis);
+  fd.append('r2Key',         key);
+  fd.append('originalName',  it.file.name);
+  fd.append('contentType',   it.file.type || 'application/octet-stream');
+  fd.append('fileSize',      it.file.size);
+  const confirmRes = await fetch('/api/content/library', { method: 'POST', body: fd });
+  if (!confirmRes.ok) throw new Error((await confirmRes.json().catch(()=>({})))?.error || 'Could not save file metadata.');
+}
+
 async function doUpload(){
   const cat=document.getElementById('upCat').value;
   const sub=document.getElementById('upSub').value;
   const err=document.getElementById('upErr');
   if(!cat){err.textContent='Select a category.';return;}
   if(!upQueue.length){err.textContent='No files selected.';return;}
+  err.textContent='';
   const btn=document.getElementById('upBtn');
   btn.disabled=true;btn.textContent='Uploading…';
   for(const it of upQueue){
-    const fd=new FormData();
-    fd.append('file',it.file);
-    const title = it.customTitle || it.file.name.replace(/\.[^.]+$/,'');
-    fd.append('title', title);
-    // Use global selectors if set, otherwise use inferred values
-    fd.append('categoryId',    cat  || it.catId || '');
-    fd.append('subcategoryId', sub  || it.subId || '');
-    fd.append('visibility',    it.vis);
-    await fetch('/api/content/library',{method:'POST',body:fd});
+    it.progress = 0;
+    try {
+      await uploadOneFile(it, cat, sub);
+      it.progress = 100;
+    } catch (e) {
+      err.textContent = `${it.file.name}: ${e.message}`;
+      btn.disabled=false;btn.textContent='Upload all';
+      renderQ();
+      return; // stop the batch on first failure so the admin sees which file failed
+    }
   }
   btn.disabled=false;btn.textContent='Upload all';
   closeModal('uploadModal');

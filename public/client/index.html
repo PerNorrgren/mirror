@@ -652,7 +652,7 @@
     return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0');
   }
 
-  function mpPlay(file) {
+  async function mpPlay(file) {
     if (mpAudio) { mpAudio.pause(); mpAudio = null; }
     _currentAudioFile = file;
     document.getElementById('miniPlayerTitle').textContent = file.title;
@@ -662,7 +662,25 @@
     document.getElementById('mpPlayBtn').textContent = '⏸';
     logHistory('audio', file.id);
 
-    mpAudio = new Audio(`/uploads/${file.filename}`);
+    // Ask the server for a playback URL — checked against this person's tier first.
+    // R2-stored files get a short-lived signed URL; legacy disk files get the same
+    // /uploads/:filename path as before. Either way, the URL is resolved fresh here
+    // rather than built from file.filename directly, so access control is never bypassed.
+    let playUrl;
+    try {
+      const res  = await fetch(`/api/content/library/${file.id}/playback-url`);
+      const data = await res.json();
+      if (!res.ok || !data.url) {
+        document.getElementById('mpPlayBtn').textContent = '▶';
+        return;
+      }
+      playUrl = data.url;
+    } catch {
+      document.getElementById('mpPlayBtn').textContent = '▶';
+      return;
+    }
+
+    mpAudio = new Audio(playUrl);
     mpAudio.addEventListener('timeupdate', () => {
       const pct = mpAudio.duration ? (mpAudio.currentTime / mpAudio.duration * 100) : 0;
       document.getElementById('mpFill').style.width = pct + '%';
