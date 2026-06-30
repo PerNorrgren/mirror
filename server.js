@@ -1014,6 +1014,13 @@ app.delete('/api/content/categories/:id', auth.requireAuthApi(['admin']), (req, 
 
 app.get('/api/content/library', auth.requireAuthApi(['admin','facilitator']), (req, res) => res.json(db.getLibraryFiles(req.query)));
 
+// ── Facilitator Workspace resource shelf — fixed prep/reference material, not
+// client-specific. Facilitators and Admins only. ──
+app.get('/api/facilitator/resources', auth.requireAuthApi(['admin','facilitator']), (req, res) => {
+  try { res.json(db.getFacilitatorResources()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── R2 upload — Step 1: get a presigned PUT URL. Browser uploads directly to R2, never through Express. ──
 app.post('/api/content/library/presign-upload', auth.requireAuthApi(['admin']), async (req, res) => {
   try {
@@ -1035,6 +1042,7 @@ app.post('/api/content/library', auth.requireAuthApi(['admin']), upload.single('
   try {
     const { title, categoryId, subcategoryId, visibility } = req.body;
     if (!title || !categoryId) return res.status(400).json({ error: 'Missing required fields.' });
+    const facilitatorResource = req.body.facilitatorResource === 'true' || req.body.facilitatorResource === true;
 
     // Path A — R2 upload already completed client-side; just save the reference.
     if (req.body.r2Key) {
@@ -1042,7 +1050,7 @@ app.post('/api/content/library', auth.requireAuthApi(['admin']), upload.single('
       db.addLibraryFile(
         id, title.trim(), req.body.description || '', req.body.r2Key, req.body.originalName || req.body.r2Key,
         req.body.contentType || 'application/octet-stream', parseInt(req.body.fileSize) || 0,
-        categoryId, subcategoryId || null, visibility || 'client', 'r2'
+        categoryId, subcategoryId || null, visibility || 'client', 'r2', facilitatorResource
       );
       return res.json({ id });
     }
@@ -1050,7 +1058,7 @@ app.post('/api/content/library', auth.requireAuthApi(['admin']), upload.single('
     // Path B — legacy direct-to-disk upload, kept for now so nothing breaks mid-migration.
     if (!req.file) return res.status(400).json({ error: 'No file provided.' });
     const id = uuidv4();
-    db.addLibraryFile(id, title.trim(), req.body.description || '', req.file.filename, req.file.originalname, req.file.mimetype, req.file.size, categoryId, subcategoryId || null, visibility || 'client', 'disk');
+    db.addLibraryFile(id, title.trim(), req.body.description || '', req.file.filename, req.file.originalname, req.file.mimetype, req.file.size, categoryId, subcategoryId || null, visibility || 'client', 'disk', facilitatorResource);
     res.json({ id });
   } catch (e) {
     console.error('library upload error:', e.message);

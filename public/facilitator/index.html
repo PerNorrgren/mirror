@@ -230,6 +230,14 @@
     }
     .modal textarea { resize:vertical; min-height:80px; }
     .modal-btns { display:flex; gap:10px; justify-content:flex-end; margin-top:8px; }
+    .modal.wide { max-width:640px; max-height:80vh; display:flex; flex-direction:column; }
+    .resource-list { overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:7px; margin:14px 0; }
+    .resource-item { display:flex; align-items:center; gap:12px; padding:11px 14px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:10px; }
+    .resource-icon { font-size:18px; flex-shrink:0; }
+    .resource-info { flex:1; min-width:0; }
+    .resource-title { font-size:13px; color:rgba(255,255,255,0.8); }
+    .resource-meta { font-size:11px; color:rgba(255,255,255,0.3); margin-top:2px; }
+    .resource-open { font-size:11px; padding:6px 14px; border-radius:14px; border:1px solid rgba(180,230,200,0.25); background:rgba(180,230,200,0.08); color:rgba(180,230,200,0.8); cursor:pointer; font-family:Georgia,serif; flex-shrink:0; }
     .modal-cancel {
       padding:8px 18px; border-radius:8px; border:1px solid rgba(255,255,255,0.15);
       background:none; color:rgba(255,255,255,0.5); cursor:pointer; font-size:13px;
@@ -274,6 +282,9 @@
     <div style="display:flex;gap:6px;margin:10px 12px 0;flex-shrink:0">
       <button class="new-client-btn" id="newClientBtn" style="flex:1;margin:0">+ New Client</button>
       <button id="mySpaceBtn" style="display:none;flex:0 0 auto;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.45);font-size:11px;letter-spacing:0.1em;text-transform:uppercase;cursor:pointer;font-family:Georgia,serif;transition:all 0.2s;white-space:nowrap" onmouseover="this.style.background='rgba(255,255,255,0.09)';this.style.color='rgba(255,255,255,0.7)'" onmouseout="this.style.background='rgba(255,255,255,0.04)';this.style.color='rgba(255,255,255,0.45)'">My Space</button>
+    </div>
+    <div style="margin:8px 12px 0;flex-shrink:0">
+      <button id="resourcesBtn" onclick="openResourcesPanel()" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(180,230,200,0.18);background:rgba(180,230,200,0.05);color:rgba(180,230,200,0.65);font-size:11px;letter-spacing:0.1em;text-transform:uppercase;cursor:pointer;font-family:Georgia,serif;transition:all 0.2s" onmouseover="this.style.background='rgba(180,230,200,0.1)'" onmouseout="this.style.background='rgba(180,230,200,0.05)'">📚 Resources</button>
     </div>
     <div class="client-list" id="clientList"></div>
     <div style="padding:8px 12px"><label style="font-size:11px;color:rgba(255,255,255,0.25);cursor:pointer"><input type="checkbox" id="showArchived" style="margin-right:6px">Show archived</label></div>
@@ -940,6 +951,65 @@ async function doChangePw() {
     </div>
   </div>
 </div>
+
+<div class="modal-overlay" id="resourcesModal">
+  <div class="modal wide">
+    <h3>📚 Facilitator Resources</h3>
+    <p style="font-size:12px;color:rgba(255,255,255,0.35);margin:-12px 0 4px">Prep material, training, and reference — your own working library, separate from client content.</p>
+    <div class="resource-list" id="resourceList"><div style="padding:20px;text-align:center;color:rgba(255,255,255,0.3);font-size:13px;font-style:italic">Loading…</div></div>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="document.getElementById('resourcesModal').classList.remove('visible')">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Facilitator Resources — fixed prep/reference shelf, not tied to any client ──
+function resourceIcon(f) {
+  if (f.file_type?.startsWith('audio')) return '🎵';
+  if (f.file_type?.startsWith('video')) return '🎬';
+  return '📄';
+}
+
+async function openResourcesPanel() {
+  document.getElementById('resourcesModal').classList.add('visible');
+  const listEl = document.getElementById('resourceList');
+  listEl.innerHTML = '<div style="padding:20px;text-align:center;color:rgba(255,255,255,0.3);font-size:13px;font-style:italic">Loading…</div>';
+  try {
+    const res = await fetch('/api/facilitator/resources');
+    const files = await res.json();
+    if (!Array.isArray(files) || !files.length) {
+      listEl.innerHTML = '<div style="padding:20px;text-align:center;color:rgba(255,255,255,0.3);font-size:13px;font-style:italic">No resources yet. Upload some from the admin content library and tag them as a Facilitator resource.</div>';
+      return;
+    }
+    listEl.innerHTML = files.map(f => `
+      <div class="resource-item">
+        <span class="resource-icon">${resourceIcon(f)}</span>
+        <div class="resource-info">
+          <div class="resource-title">${f.title}</div>
+          <div class="resource-meta">${f.category_name || ''}${f.subcategory_name ? ' / ' + f.subcategory_name : ''}</div>
+        </div>
+        <button class="resource-open" onclick="openResourceFile('${f.id}')">Open</button>
+      </div>
+    `).join('');
+  } catch {
+    listEl.innerHTML = '<div style="padding:20px;text-align:center;color:rgba(255,120,100,0.6);font-size:13px">Could not load resources.</div>';
+  }
+}
+
+// Same tier-checked, signed-URL pattern used everywhere else content is opened —
+// the facilitator's own access is still verified server-side, not assumed client-side.
+async function openResourceFile(id) {
+  try {
+    const res  = await fetch(`/api/content/library/${id}/playback-url`);
+    const data = await res.json();
+    if (!res.ok || !data.url) { alert(data.error || 'Could not open this file.'); return; }
+    window.open(data.url, '_blank');
+  } catch {
+    alert('Could not open this file — network error.');
+  }
+}
+</script>
 
 </body>
 </html>

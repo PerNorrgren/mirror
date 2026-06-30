@@ -246,6 +246,7 @@ async function getDb() {
     "ALTER TABLE clients ADD COLUMN data_retention_until TEXT",
     "ALTER TABLE library_files ADD COLUMN storage_type TEXT DEFAULT 'disk'",
     "ALTER TABLE library_files ADD COLUMN archived INTEGER DEFAULT 0",
+    "ALTER TABLE library_files ADD COLUMN facilitator_resource INTEGER DEFAULT 0",
   ];
   migrations.forEach(sql => {
     try { db.run(sql); } catch(e) { /* column already exists — ignore */ }
@@ -365,12 +366,12 @@ function renameCategory(id, name) {
 function deleteCategory(id) { getDbSync().run('DELETE FROM categories WHERE id=?', [id]); save(); }
 
 // ── Library files ──
-function addLibraryFile(id, title, description, filename, originalName, fileType, fileSize, categoryId, subcategoryId, visibility, storageType) {
+function addLibraryFile(id, title, description, filename, originalName, fileType, fileSize, categoryId, subcategoryId, visibility, storageType, facilitatorResource) {
   getDbSync().run(`INSERT INTO library_files 
-    (id,title,description,filename,original_name,file_type,file_size,category_id,subcategory_id,visibility,storage_type)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+    (id,title,description,filename,original_name,file_type,file_size,category_id,subcategory_id,visibility,storage_type,facilitator_resource)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
     [id, title, description||'', filename, originalName, fileType, fileSize||0,
-     categoryId, subcategoryId||null, visibility||'client', storageType||'disk']);
+     categoryId, subcategoryId||null, visibility||'client', storageType||'disk', facilitatorResource ? 1 : 0]);
   save();
 }
 
@@ -743,14 +744,30 @@ function canSeeFile(file, userLevel) {
 
 function getLibraryFilesForUser(userFlags) {
   const level = userMaxLevel(userFlags);
-  const files = queryAll('SELECT * FROM library_files WHERE archived=0 ORDER BY title ASC');
+  // facilitator_resource files are deliberately excluded from the regular Content tab —
+  // even for a logged-in Facilitator/Admin — since they're prep/reference material meant
+  // for the separate Facilitator Workspace shelf, not self-practice content. A facilitator
+  // viewing their own Content tab should see what a Member sees, not their own prep notes
+  // mixed in.
+  const files = queryAll('SELECT * FROM library_files WHERE archived=0 AND facilitator_resource=0 ORDER BY title ASC');
   return files.filter(f => canSeeFile(f, level)).map(f => ({ ...f, accessible: true }));
 }
 
 function getAllLibraryFilesWithAccess(userFlags) {
   const level = userMaxLevel(userFlags);
-  const files = queryAll('SELECT * FROM library_files WHERE archived=0 ORDER BY title ASC');
+  const files = queryAll('SELECT * FROM library_files WHERE archived=0 AND facilitator_resource=0 ORDER BY title ASC');
   return files.map(f => ({ ...f, accessible: canSeeFile(f, level) }));
+}
+
+// Returns the fixed Facilitator Workspace resource shelf — prep material, reference,
+// training, not tied to any specific client. Visible to Facilitators and Admins only.
+function getFacilitatorResources() {
+  return queryAll(`SELECT f.*, cat.name as category_name, sub.name as subcategory_name
+    FROM library_files f
+    LEFT JOIN categories cat ON f.category_id=cat.id
+    LEFT JOIN categories sub ON f.subcategory_id=sub.id
+    WHERE f.archived=0 AND f.facilitator_resource=1
+    ORDER BY f.created_at DESC`);
 }
 
 // Exported single-file access check — same cascade logic as the listing functions above,
@@ -850,7 +867,7 @@ module.exports = {
   // Registration
   registerUser, getUserByEmail, upgradeToMember, markAsClient,
   // Content visibility
-  getLibraryFilesForUser, getAllLibraryFilesWithAccess, canAccessFile,
+  getLibraryFilesForUser, getAllLibraryFilesWithAccess, canAccessFile, getFacilitatorResources,
   // System client
   markAsSystemClient,
   // Invitations
