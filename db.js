@@ -93,6 +93,138 @@ async function getDb() {
     FOREIGN KEY (file_id) REFERENCES library_files(id)
   )`);
 
+  // ── Course instances ──
+  // A specific offering of a course. mode='self_paced' has no dates/capacity —
+  // open-ended enrolment. mode='cohort' is a scheduled group run with a start/
+  // end date and (optionally) a capacity; its live meetings live in
+  // instance_sessions below. Price is one-off and only ever charged to
+  // Explorers — Members enrol free regardless of price_cents (enforced at
+  // enrolment time, not here, since tier can change after an instance exists).
+  db.run(`CREATE TABLE IF NOT EXISTS course_instances (
+    id TEXT PRIMARY KEY,
+    course_id TEXT NOT NULL,
+    mode TEXT NOT NULL DEFAULT 'self_paced',
+    title TEXT NOT NULL,
+    start_date TEXT,
+    end_date TEXT,
+    capacity INTEGER,
+    price_cents INTEGER DEFAULT 0,
+    stripe_price_id TEXT,
+    status TEXT NOT NULL DEFAULT 'draft',
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (course_id) REFERENCES courses(id)
+  )`);
+
+  // ── Enrolments ──
+  // One row per user per instance. payment_status: 'free' (Member — always
+  // free regardless of instance price), 'paid' (Explorer who completed
+  // checkout), 'pending' (Explorer mid-checkout — see Stripe webhook).
+  // A user cannot have two enrolments in the same instance (UNIQUE below).
+  db.run(`CREATE TABLE IF NOT EXISTS enrolments (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    course_instance_id TEXT NOT NULL,
+    payment_status TEXT NOT NULL DEFAULT 'free',
+    amount_paid_cents INTEGER DEFAULT 0,
+    stripe_payment_intent_id TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    enrolled_at TEXT DEFAULT (datetime('now')),
+    completed_at TEXT,
+    UNIQUE(user_id, course_instance_id),
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (course_instance_id) REFERENCES course_instances(id)
+  )`);
+
+  // ── Lesson progress ──
+  // One row per lesson per enrolment. last_position is a free-text resume
+  // pointer (e.g. a lesson_file_refs id, or a timestamp within an audio file)
+  // — deliberately generic so the resume mechanism isn't locked to one
+  // content type. % complete for a course is derived at query time from
+  // completed-count / total-lessons, not stored, so it's never stale.
+  db.run(`CREATE TABLE IF NOT EXISTS lesson_progress (
+    id TEXT PRIMARY KEY,
+    enrolment_id TEXT NOT NULL,
+    lesson_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'not_started',
+    last_position TEXT,
+    started_at TEXT,
+    completed_at TEXT,
+    UNIQUE(enrolment_id, lesson_id),
+    FOREIGN KEY (enrolment_id) REFERENCES enrolments(id),
+    FOREIGN KEY (lesson_id) REFERENCES lessons(id)
+  )`);
+
+  // ── Cohort live sessions ──
+  // Scheduled meetings for a mode='cohort' instance. facilitator_notes is
+  // private; handout is what students see for that specific session.
+  db.run(`CREATE TABLE IF NOT EXISTS instance_sessions (
+    id TEXT PRIMARY KEY,
+    course_instance_id TEXT NOT NULL,
+    session_number INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    scheduled_at TEXT,
+    facilitator_notes TEXT DEFAULT '',
+    handout TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (course_instance_id) REFERENCES course_instances(id)
+  )`);
+
+  // ── Student notes ──
+  // A facilitator's private notes on one student within one cohort instance —
+  // separate from the clinical `sessions` table, which is 1:1 client work,
+  // not tied to a course.
+  db.run(`CREATE TABLE IF NOT EXISTS student_notes (
+    id TEXT PRIMARY KEY,
+    course_instance_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    facilitator_id TEXT NOT NULL,
+    note TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (course_instance_id) REFERENCES course_instances(id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  )`);
+
+  // ── Quizzes ── (Per Bot 5 follow-on — basic quiz support from the start)
+  // One quiz per lesson, optional. question_type: 'single_choice' |
+  // 'multi_choice' | 'true_false' — the three basic types for v1.
+  db.run(`CREATE TABLE IF NOT EXISTS quizzes (
+    id TEXT PRIMARY KEY,
+    lesson_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    pass_threshold_pct INTEGER DEFAULT 70,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (lesson_id) REFERENCES lessons(id)
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS quiz_questions (
+    id TEXT PRIMARY KEY,
+    quiz_id TEXT NOT NULL,
+    question_text TEXT NOT NULL,
+    question_type TEXT NOT NULL DEFAULT 'single_choice',
+    sort_order INTEGER DEFAULT 0,
+    FOREIGN KEY (quiz_id) REFERENCES quizzes(id)
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS quiz_options (
+    id TEXT PRIMARY KEY,
+    question_id TEXT NOT NULL,
+    option_text TEXT NOT NULL,
+    is_correct INTEGER DEFAULT 0,
+    sort_order INTEGER DEFAULT 0,
+    FOREIGN KEY (question_id) REFERENCES quiz_questions(id)
+  )`);
+  // One attempt per submission (a user can retake — every attempt is kept,
+  // not overwritten, so there's a real history rather than just a latest score).
+  db.run(`CREATE TABLE IF NOT EXISTS quiz_attempts (
+    id TEXT PRIMARY KEY,
+    enrolment_id TEXT NOT NULL,
+    quiz_id TEXT NOT NULL,
+    score_pct INTEGER NOT NULL,
+    passed INTEGER NOT NULL,
+    answers_json TEXT DEFAULT '',
+    attempted_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (enrolment_id) REFERENCES enrolments(id),
+    FOREIGN KEY (quiz_id) REFERENCES quizzes(id)
+  )`);
+
   // ── Playlists ──
   db.run(`CREATE TABLE IF NOT EXISTS playlists (
     id TEXT PRIMARY KEY,
@@ -595,6 +727,10 @@ function createCourse(id, title, description, categoryId, subcategoryId, guestVi
   getDbSync().run('INSERT INTO courses (id,title,description,category_id,subcategory_id,guest_visible) VALUES (?,?,?,?,?,?)',
     [id, title, description||'', categoryId, subcategoryId||null, guestVisible?1:0]); save();
 }
+function updateCourse(id, title, description, categoryId, subcategoryId, guestVisible) {
+  getDbSync().run('UPDATE courses SET title=?,description=?,category_id=?,subcategory_id=?,guest_visible=? WHERE id=?',
+    [title, description||'', categoryId, subcategoryId||null, guestVisible?1:0, id]); save();
+}
 function getCourse(id) { return queryOne('SELECT * FROM courses WHERE id=?', [id]); }
 function getAllCourses(filters = {}) {
   let sql = `SELECT c.*, cat.name as category_name, sub.name as subcategory_name
@@ -620,9 +756,14 @@ function createLesson(id, courseId, lessonNumber, title, description, visibility
   getDbSync().run('INSERT INTO lessons (id,course_id,lesson_number,title,description,visibility) VALUES (?,?,?,?,?,?)',
     [id, courseId, lessonNumber, title, description||'', visibility||'client']); save();
 }
+function updateLesson(id, lessonNumber, title, description, visibility) {
+  getDbSync().run('UPDATE lessons SET lesson_number=?,title=?,description=?,visibility=? WHERE id=?',
+    [lessonNumber, title, description||'', visibility||'client', id]); save();
+}
 function getLessonsForCourse(courseId) {
   return queryAll('SELECT * FROM lessons WHERE course_id=? ORDER BY lesson_number ASC', [courseId]);
 }
+function getLesson(id) { return queryOne('SELECT * FROM lessons WHERE id=?', [id]); }
 function deleteLesson(id) {
   getDbSync().run('DELETE FROM lesson_file_refs WHERE lesson_id=?', [id]);
   getDbSync().run('DELETE FROM lessons WHERE id=?', [id]);
@@ -641,6 +782,286 @@ function getFilesForLesson(lessonId) {
 }
 function removeLessonFileRef(refId) {
   getDbSync().run('DELETE FROM lesson_file_refs WHERE id=?', [refId]); save();
+}
+
+// ── Course instances ──
+function createCourseInstance(id, courseId, mode, title, startDate, endDate, capacity, priceCents, stripePriceId, status) {
+  getDbSync().run(
+    `INSERT INTO course_instances (id,course_id,mode,title,start_date,end_date,capacity,price_cents,stripe_price_id,status)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    [id, courseId, mode||'self_paced', title, startDate||null, endDate||null, capacity||null, priceCents||0, stripePriceId||null, status||'draft']
+  );
+  save();
+}
+function getCourseInstance(id) {
+  return queryOne(
+    `SELECT ci.*, c.title as course_title
+     FROM course_instances ci LEFT JOIN courses c ON ci.course_id=c.id
+     WHERE ci.id=?`, [id]
+  );
+}
+function getInstancesForCourse(courseId) {
+  return queryAll('SELECT * FROM course_instances WHERE course_id=? ORDER BY created_at DESC', [courseId]);
+}
+function getAllCourseInstances(filters = {}) {
+  let sql = `SELECT ci.*, c.title as course_title
+    FROM course_instances ci LEFT JOIN courses c ON ci.course_id=c.id WHERE 1=1`;
+  const params = [];
+  if (filters.status) { sql += ' AND ci.status=?'; params.push(filters.status); }
+  if (filters.mode)   { sql += ' AND ci.mode=?';   params.push(filters.mode); }
+  sql += ' ORDER BY ci.created_at DESC';
+  return queryAll(sql, params);
+}
+function updateCourseInstance(id, fields) {
+  const allowed = ['mode','title','start_date','end_date','capacity','price_cents','stripe_price_id','status'];
+  const sets = Object.keys(fields).filter(k => allowed.includes(k));
+  if (!sets.length) return;
+  getDbSync().run(
+    `UPDATE course_instances SET ${sets.map(k=>`${k}=?`).join(',')} WHERE id=?`,
+    [...sets.map(k=>fields[k]), id]
+  );
+  save();
+}
+function deleteCourseInstance(id) {
+  const enrolmentIds = queryAll('SELECT id FROM enrolments WHERE course_instance_id=?', [id]).map(e=>e.id);
+  enrolmentIds.forEach(eid => {
+    getDbSync().run('DELETE FROM lesson_progress WHERE enrolment_id=?', [eid]);
+    getDbSync().run('DELETE FROM quiz_attempts WHERE enrolment_id=?', [eid]);
+  });
+  getDbSync().run('DELETE FROM enrolments WHERE course_instance_id=?', [id]);
+  getDbSync().run('DELETE FROM instance_sessions WHERE course_instance_id=?', [id]);
+  getDbSync().run('DELETE FROM student_notes WHERE course_instance_id=?', [id]);
+  getDbSync().run('DELETE FROM course_instances WHERE id=?', [id]);
+  save();
+}
+
+// ── Enrolments ──
+// isMember decides payment_status/amount at creation time: Members enrol free
+// regardless of the instance's price_cents; Explorers pay what the instance
+// charges (amountPaidCents/paymentIntentId come from the completed Stripe
+// checkout, or are omitted for a 'pending' row created right before checkout).
+function createEnrolment(id, userId, courseInstanceId, paymentStatus, amountPaidCents, stripePaymentIntentId) {
+  getDbSync().run(
+    `INSERT INTO enrolments (id,user_id,course_instance_id,payment_status,amount_paid_cents,stripe_payment_intent_id)
+     VALUES (?,?,?,?,?,?)`,
+    [id, userId, courseInstanceId, paymentStatus||'free', amountPaidCents||0, stripePaymentIntentId||null]
+  );
+  save();
+}
+function getEnrolment(id) { return queryOne('SELECT * FROM enrolments WHERE id=?', [id]); }
+function getEnrolmentForUserAndInstance(userId, courseInstanceId) {
+  return queryOne('SELECT * FROM enrolments WHERE user_id=? AND course_instance_id=?', [userId, courseInstanceId]);
+}
+// For the client's own "My Courses" list — course/instance info plus a live
+// % complete computed from lesson_progress, never stored/stale.
+function getEnrolmentsForUser(userId) {
+  const rows = queryAll(
+    `SELECT e.*, ci.title as instance_title, ci.mode, ci.course_id, c.title as course_title
+     FROM enrolments e
+     JOIN course_instances ci ON e.course_instance_id = ci.id
+     JOIN courses c ON ci.course_id = c.id
+     WHERE e.user_id=?
+     ORDER BY e.enrolled_at DESC`, [userId]
+  );
+  return rows.map(r => {
+    const totalLessons = queryOne('SELECT COUNT(*) as n FROM lessons WHERE course_id=?', [r.course_id]).n;
+    const completedLessons = queryOne(
+      `SELECT COUNT(*) as n FROM lesson_progress WHERE enrolment_id=? AND status='completed'`, [r.id]
+    ).n;
+    const percentComplete = totalLessons > 0 ? Math.round((completedLessons / totalLessons) * 100) : 0;
+    return { ...r, total_lessons: totalLessons, completed_lessons: completedLessons, percent_complete: percentComplete };
+  });
+}
+function getEnrolmentsForInstance(courseInstanceId) {
+  return queryAll(
+    `SELECT e.*, u.name as user_name, u.email as user_email
+     FROM enrolments e JOIN users u ON e.user_id = u.id
+     WHERE e.course_instance_id=? ORDER BY e.enrolled_at DESC`, [courseInstanceId]
+  );
+}
+function updateEnrolmentPaymentStatus(id, paymentStatus, amountPaidCents, stripePaymentIntentId) {
+  getDbSync().run(
+    `UPDATE enrolments SET payment_status=?, amount_paid_cents=?, stripe_payment_intent_id=COALESCE(?,stripe_payment_intent_id) WHERE id=?`,
+    [paymentStatus, amountPaidCents||0, stripePaymentIntentId||null, id]
+  );
+  save();
+}
+function markEnrolmentCompleted(id) {
+  getDbSync().run(`UPDATE enrolments SET status='completed', completed_at=datetime('now') WHERE id=?`, [id]);
+  save();
+}
+function deleteEnrolment(id) {
+  getDbSync().run('DELETE FROM lesson_progress WHERE enrolment_id=?', [id]);
+  getDbSync().run('DELETE FROM quiz_attempts WHERE enrolment_id=?', [id]);
+  getDbSync().run('DELETE FROM enrolments WHERE id=?', [id]);
+  save();
+}
+
+// ── Lesson progress ──
+// Insert-or-update in one call — the resume flow calls this every time a
+// student opens or finishes a lesson, so it needs to be idempotent per
+// (enrolment_id, lesson_id) rather than erroring on a duplicate.
+function upsertLessonProgress(id, enrolmentId, lessonId, status, lastPosition) {
+  const existing = queryOne('SELECT id FROM lesson_progress WHERE enrolment_id=? AND lesson_id=?', [enrolmentId, lessonId]);
+  if (existing) {
+    const completedClause = status === 'completed' ? `, completed_at=datetime('now')` : '';
+    getDbSync().run(
+      `UPDATE lesson_progress SET status=?, last_position=? ${completedClause} WHERE id=?`,
+      [status, lastPosition||null, existing.id]
+    );
+  } else {
+    getDbSync().run(
+      `INSERT INTO lesson_progress (id,enrolment_id,lesson_id,status,last_position,started_at,completed_at)
+       VALUES (?,?,?,?,?,datetime('now'),${status==='completed' ? "datetime('now')" : 'NULL'})`,
+      [id, enrolmentId, lessonId, status, lastPosition||null]
+    );
+  }
+  save();
+}
+function getLessonProgress(enrolmentId, lessonId) {
+  return queryOne('SELECT * FROM lesson_progress WHERE enrolment_id=? AND lesson_id=?', [enrolmentId, lessonId]);
+}
+function getProgressForEnrolment(enrolmentId) {
+  return queryAll(
+    `SELECT lp.*, l.title as lesson_title, l.lesson_number
+     FROM lesson_progress lp JOIN lessons l ON lp.lesson_id = l.id
+     WHERE lp.enrolment_id=? ORDER BY l.lesson_number ASC`, [enrolmentId]
+  );
+}
+// The "Continue Lesson X" pointer — the most recently touched in-progress
+// lesson if one exists, otherwise the first not-yet-started lesson in course
+// order. Returns null only when every lesson in the course is completed.
+function getResumePoint(enrolmentId, courseId) {
+  const allLessons = queryAll('SELECT id, lesson_number, title FROM lessons WHERE course_id=? ORDER BY lesson_number ASC', [courseId]);
+  if (!allLessons.length) return null;
+  const progressRows = queryAll('SELECT * FROM lesson_progress WHERE enrolment_id=?', [enrolmentId]);
+  const progressByLesson = {};
+  progressRows.forEach(p => { progressByLesson[p.lesson_id] = p; });
+
+  const inProgress = progressRows
+    .filter(p => p.status === 'in_progress')
+    .sort((a,b) => new Date(b.started_at||0) - new Date(a.started_at||0))[0];
+  if (inProgress) {
+    const lesson = allLessons.find(l => l.id === inProgress.lesson_id);
+    return lesson ? { ...lesson, last_position: inProgress.last_position, status: 'in_progress' } : null;
+  }
+  const nextNotStarted = allLessons.find(l => !progressByLesson[l.id] || progressByLesson[l.id].status === 'not_started');
+  if (nextNotStarted) return { ...nextNotStarted, last_position: null, status: 'not_started' };
+  return null; // every lesson completed
+}
+
+// ── Cohort live sessions ──
+function addInstanceSession(id, courseInstanceId, sessionNumber, title, scheduledAt, facilitatorNotes, handout) {
+  getDbSync().run(
+    `INSERT INTO instance_sessions (id,course_instance_id,session_number,title,scheduled_at,facilitator_notes,handout)
+     VALUES (?,?,?,?,?,?,?)`,
+    [id, courseInstanceId, sessionNumber, title, scheduledAt||null, facilitatorNotes||'', handout||'']
+  );
+  save();
+}
+function getSessionsForInstance(courseInstanceId) {
+  return queryAll('SELECT * FROM instance_sessions WHERE course_instance_id=? ORDER BY session_number ASC', [courseInstanceId]);
+}
+function updateInstanceSession(id, fields) {
+  const allowed = ['title','scheduled_at','facilitator_notes','handout'];
+  const sets = Object.keys(fields).filter(k => allowed.includes(k));
+  if (!sets.length) return;
+  getDbSync().run(`UPDATE instance_sessions SET ${sets.map(k=>`${k}=?`).join(',')} WHERE id=?`, [...sets.map(k=>fields[k]), id]);
+  save();
+}
+function deleteInstanceSession(id) { getDbSync().run('DELETE FROM instance_sessions WHERE id=?', [id]); save(); }
+
+// ── Student notes ── (facilitator's private notes on a student within a cohort — separate from the clinical `sessions` table)
+function addStudentNote(id, courseInstanceId, userId, facilitatorId, note) {
+  getDbSync().run(
+    'INSERT INTO student_notes (id,course_instance_id,user_id,facilitator_id,note) VALUES (?,?,?,?,?)',
+    [id, courseInstanceId, userId, facilitatorId, note]
+  );
+  save();
+}
+function getNotesForStudentInInstance(courseInstanceId, userId) {
+  return queryAll('SELECT * FROM student_notes WHERE course_instance_id=? AND user_id=? ORDER BY created_at DESC', [courseInstanceId, userId]);
+}
+
+// ── Quizzes ──
+function createQuiz(id, lessonId, title, passThresholdPct) {
+  getDbSync().run('INSERT INTO quizzes (id,lesson_id,title,pass_threshold_pct) VALUES (?,?,?,?)',
+    [id, lessonId, title, passThresholdPct||70]);
+  save();
+}
+function getQuiz(id) { return queryOne('SELECT * FROM quizzes WHERE id=?', [id]); }
+function getQuizForLesson(lessonId) { return queryOne('SELECT * FROM quizzes WHERE lesson_id=?', [lessonId]); }
+function updateQuiz(id, title, passThresholdPct) {
+  getDbSync().run('UPDATE quizzes SET title=?,pass_threshold_pct=? WHERE id=?', [title, passThresholdPct||70, id]);
+  save();
+}
+function deleteQuiz(id) {
+  const qIds = queryAll('SELECT id FROM quiz_questions WHERE quiz_id=?', [id]).map(q=>q.id);
+  qIds.forEach(qid => getDbSync().run('DELETE FROM quiz_options WHERE question_id=?', [qid]));
+  getDbSync().run('DELETE FROM quiz_questions WHERE quiz_id=?', [id]);
+  getDbSync().run('DELETE FROM quiz_attempts WHERE quiz_id=?', [id]);
+  getDbSync().run('DELETE FROM quizzes WHERE id=?', [id]);
+  save();
+}
+
+function addQuizQuestion(id, quizId, questionText, questionType, sortOrder) {
+  getDbSync().run('INSERT INTO quiz_questions (id,quiz_id,question_text,question_type,sort_order) VALUES (?,?,?,?,?)',
+    [id, quizId, questionText, questionType||'single_choice', sortOrder||0]);
+  save();
+}
+function getQuestionsForQuiz(quizId) {
+  return queryAll('SELECT * FROM quiz_questions WHERE quiz_id=? ORDER BY sort_order ASC', [quizId]);
+}
+function updateQuizQuestion(id, questionText, questionType, sortOrder) {
+  getDbSync().run('UPDATE quiz_questions SET question_text=?,question_type=?,sort_order=? WHERE id=?',
+    [questionText, questionType, sortOrder||0, id]);
+  save();
+}
+function deleteQuizQuestion(id) {
+  getDbSync().run('DELETE FROM quiz_options WHERE question_id=?', [id]);
+  getDbSync().run('DELETE FROM quiz_questions WHERE id=?', [id]);
+  save();
+}
+
+function addQuizOption(id, questionId, optionText, isCorrect, sortOrder) {
+  getDbSync().run('INSERT INTO quiz_options (id,question_id,option_text,is_correct,sort_order) VALUES (?,?,?,?,?)',
+    [id, questionId, optionText, isCorrect?1:0, sortOrder||0]);
+  save();
+}
+function getOptionsForQuestion(questionId) {
+  return queryAll('SELECT * FROM quiz_options WHERE question_id=? ORDER BY sort_order ASC', [questionId]);
+}
+function updateQuizOption(id, optionText, isCorrect, sortOrder) {
+  getDbSync().run('UPDATE quiz_options SET option_text=?,is_correct=?,sort_order=? WHERE id=?',
+    [optionText, isCorrect?1:0, sortOrder||0, id]);
+  save();
+}
+function deleteQuizOption(id) { getDbSync().run('DELETE FROM quiz_options WHERE id=?', [id]); save(); }
+
+// Full quiz with questions and their options nested — what the client-facing
+// "take this quiz" screen actually needs in one call.
+function getFullQuiz(quizId) {
+  const quiz = getQuiz(quizId);
+  if (!quiz) return null;
+  const questions = getQuestionsForQuiz(quizId).map(q => ({
+    ...q,
+    options: getOptionsForQuestion(q.id),
+  }));
+  return { ...quiz, questions };
+}
+
+function recordQuizAttempt(id, enrolmentId, quizId, scorePct, passed, answersJson) {
+  getDbSync().run(
+    'INSERT INTO quiz_attempts (id,enrolment_id,quiz_id,score_pct,passed,answers_json) VALUES (?,?,?,?,?,?)',
+    [id, enrolmentId, quizId, scorePct, passed?1:0, answersJson||'']
+  );
+  save();
+}
+function getAttemptsForEnrolment(enrolmentId, quizId) {
+  return queryAll('SELECT * FROM quiz_attempts WHERE enrolment_id=? AND quiz_id=? ORDER BY attempted_at DESC', [enrolmentId, quizId]);
+}
+function getBestAttempt(enrolmentId, quizId) {
+  return queryOne('SELECT * FROM quiz_attempts WHERE enrolment_id=? AND quiz_id=? ORDER BY score_pct DESC LIMIT 1', [enrolmentId, quizId]);
 }
 
 // ── Playlists ──
@@ -1429,11 +1850,28 @@ module.exports = {
   addLibraryFile, getLibraryFile, getLibraryFiles, updateLibraryFile,
   renameLibraryFile, deleteLibraryFile, archiveLibraryFile, getFileUsage,
   // Courses
-  createCourse, getCourse, getAllCourses, deleteCourse,
+  createCourse, updateCourse, getCourse, getAllCourses, deleteCourse,
   // Lessons
-  createLesson, getLessonsForCourse, deleteLesson,
+  createLesson, updateLesson, getLessonsForCourse, getLesson, deleteLesson,
   // Lesson file refs
   addLessonFileRef, getFilesForLesson, removeLessonFileRef,
+  // Course instances
+  createCourseInstance, getCourseInstance, getInstancesForCourse, getAllCourseInstances,
+  updateCourseInstance, deleteCourseInstance,
+  // Enrolments
+  createEnrolment, getEnrolment, getEnrolmentForUserAndInstance, getEnrolmentsForUser,
+  getEnrolmentsForInstance, updateEnrolmentPaymentStatus, markEnrolmentCompleted, deleteEnrolment,
+  // Lesson progress
+  upsertLessonProgress, getLessonProgress, getProgressForEnrolment, getResumePoint,
+  // Cohort live sessions
+  addInstanceSession, getSessionsForInstance, updateInstanceSession, deleteInstanceSession,
+  // Student notes
+  addStudentNote, getNotesForStudentInInstance,
+  // Quizzes
+  createQuiz, getQuiz, getQuizForLesson, updateQuiz, deleteQuiz, getFullQuiz,
+  addQuizQuestion, getQuestionsForQuiz, updateQuizQuestion, deleteQuizQuestion,
+  addQuizOption, getOptionsForQuestion, updateQuizOption, deleteQuizOption,
+  recordQuizAttempt, getAttemptsForEnrolment, getBestAttempt,
   // Playlists
   createPlaylist, getPlaylist, getAllPlaylists, deletePlaylist,
   // Playlist track refs
