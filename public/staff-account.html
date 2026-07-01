@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+  <title>My Account — Deeper Mindfulness</title>
+  <style>
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    html, body { width:100%; min-height:100%; font-family:'Georgia',serif; background:#0d1210; color:rgba(255,255,255,0.82); display:flex; align-items:flex-start; justify-content:center; padding:32px 16px 60px; }
+
+    .panel { width:100%; max-width:480px; display:flex; flex-direction:column; gap:14px; }
+
+    .back-link { display:inline-flex; align-items:center; gap:6px; color:rgba(255,255,255,0.3); font-size:12px; letter-spacing:0.1em; text-transform:uppercase; text-decoration:none; margin-bottom:4px; transition:color 0.2s; }
+    .back-link:hover { color:rgba(180,230,200,0.7); }
+    .back-link svg { width:14px; height:14px; }
+
+    .wordmark { font-size:10px; letter-spacing:0.25em; text-transform:uppercase; color:rgba(255,255,255,0.35); margin-bottom:2px; }
+    .page-title { font-size:22px; color:rgba(255,255,255,0.82); font-weight:normal; margin-bottom:2px; }
+    .page-sub { font-size:13px; color:rgba(255,255,255,0.3); }
+
+    .card { background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.09); border-radius:16px; overflow:hidden; }
+    .card-header { padding:16px 20px 12px; border-bottom:1px solid rgba(255,255,255,0.06); }
+    .card-title { font-size:11px; letter-spacing:0.2em; text-transform:uppercase; color:rgba(255,255,255,0.35); }
+    .card-body { padding:16px 20px 20px; display:flex; flex-direction:column; gap:14px; }
+
+    .field { display:flex; flex-direction:column; gap:5px; }
+    .field label { font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:rgba(255,255,255,0.3); }
+    .field input { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); border-radius:9px; padding:10px 13px; font-size:14px; color:rgba(255,255,255,0.82); font-family:'Georgia',serif; outline:none; transition:border-color 0.2s; }
+    .field input:focus { border-color:rgba(180,230,200,0.4); }
+    .field input:disabled { opacity:0.4; cursor:not-allowed; }
+
+    .role-badge { display:inline-flex; align-items:center; gap:7px; padding:6px 13px; border-radius:20px; font-size:12px; letter-spacing:0.08em; background:rgba(180,230,200,0.08); border:1px solid rgba(180,230,200,0.25); color:rgba(180,230,200,0.8); width:fit-content; }
+    .badge-dot { width:6px; height:6px; border-radius:50%; background:currentColor; opacity:0.7; }
+
+    .btn-primary { width:100%; padding:12px; border-radius:9px; border:1px solid rgba(180,230,200,0.3); background:rgba(180,230,200,0.1); color:rgba(180,230,200,0.85); font-size:13px; letter-spacing:0.1em; text-transform:uppercase; cursor:pointer; transition:all 0.2s; font-family:'Georgia',serif; }
+    .btn-primary:hover { background:rgba(180,230,200,0.18); }
+    .btn-primary:disabled { opacity:0.4; cursor:not-allowed; }
+    .btn-ghost { width:100%; padding:11px; border-radius:9px; border:1px solid rgba(255,255,255,0.1); background:none; color:rgba(255,255,255,0.35); font-size:13px; letter-spacing:0.1em; text-transform:uppercase; cursor:pointer; transition:all 0.2s; font-family:'Georgia',serif; }
+    .btn-ghost:hover { background:rgba(255,255,255,0.05); color:rgba(255,255,255,0.6); }
+
+    .msg { font-size:13px; text-align:center; min-height:18px; padding:2px 0; transition:opacity 0.3s; }
+    .msg.ok  { color:rgba(180,230,200,0.75); }
+    .msg.err { color:rgba(255,120,100,0.8); }
+    .msg.fade { opacity:0; }
+
+    .skeleton { background:rgba(255,255,255,0.05); border-radius:6px; height:14px; animation:sk 1.4s ease-in-out infinite; }
+    @keyframes sk { 0%,100%{opacity:0.4} 50%{opacity:0.8} }
+  </style>
+</head>
+<body>
+
+<div class="panel">
+
+  <a class="back-link" id="backLink" href="/login">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+    Back
+  </a>
+
+  <div>
+    <div class="wordmark">Deeper Mindfulness</div>
+    <div class="page-title">My account</div>
+    <div class="page-sub" id="pageSubName">Loading…</div>
+  </div>
+
+  <!-- Profile -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">Profile</div></div>
+    <div class="card-body">
+      <div class="role-badge" id="roleBadge"><span class="badge-dot"></span><span id="roleLabel">—</span></div>
+
+      <div class="field">
+        <label>Name</label>
+        <input type="text" id="fieldName" placeholder="Your name"/>
+      </div>
+      <div class="field">
+        <label>Email</label>
+        <input type="email" id="fieldEmail" placeholder="you@example.com"/>
+      </div>
+
+      <button class="btn-primary" id="saveProfileBtn" onclick="saveProfile()">Save changes</button>
+      <div class="msg" id="profileMsg"></div>
+    </div>
+  </div>
+
+  <!-- Password -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">Password</div></div>
+    <div class="card-body">
+      <div class="field">
+        <label>Current password</label>
+        <input type="password" id="pwCurrent"/>
+      </div>
+      <div class="field">
+        <label>New password</label>
+        <input type="password" id="pwNew"/>
+      </div>
+      <div class="field">
+        <label>Confirm new password</label>
+        <input type="password" id="pwConfirm"/>
+      </div>
+      <button class="btn-primary" onclick="changePassword()">Update password</button>
+      <div class="msg" id="pwMsg"></div>
+    </div>
+  </div>
+
+  <button class="btn-ghost" onclick="logout()">Sign out</button>
+
+</div>
+
+<script>
+  let account = null;
+
+  async function loadAccount() {
+    try {
+      const res  = await fetch('/api/staff-account');
+      const data = await res.json();
+      if (data.error) { window.location.href = '/login'; return; }
+      account = data;
+      document.getElementById('pageSubName').textContent = account.email;
+      document.getElementById('fieldName').value  = account.name || '';
+      document.getElementById('fieldEmail').value = account.email || '';
+
+      const roleLabels = { admin: 'Admin', facilitator: 'Facilitator' };
+      document.getElementById('roleLabel').textContent = roleLabels[account.role] || account.role;
+
+      const backMap = { admin: '/admin/', facilitator: '/facilitator/' };
+      document.getElementById('backLink').href = backMap[account.role] || '/login';
+    } catch(e) {
+      window.location.href = '/login';
+    }
+  }
+
+  async function saveProfile() {
+    const btn   = document.getElementById('saveProfileBtn');
+    const name  = document.getElementById('fieldName').value.trim();
+    const email = document.getElementById('fieldEmail').value.trim();
+    if (!name)  { showMsg('profileMsg', 'Please enter your name.', 'err'); return; }
+    if (!email || !email.includes('@')) { showMsg('profileMsg', 'Please enter a valid email.', 'err'); return; }
+
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      const res  = await fetch('/api/staff-account', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        showMsg('profileMsg', 'Saved.', 'ok');
+        document.getElementById('pageSubName').textContent = email;
+      } else {
+        showMsg('profileMsg', data.error || 'Something went wrong.', 'err');
+      }
+    } catch(e) {
+      showMsg('profileMsg', 'Could not save. Please try again.', 'err');
+    }
+    btn.disabled = false; btn.textContent = 'Save changes';
+  }
+
+  async function changePassword() {
+    const current = document.getElementById('pwCurrent').value;
+    const p1       = document.getElementById('pwNew').value;
+    const p2       = document.getElementById('pwConfirm').value;
+
+    if (!current)      { showMsg('pwMsg', 'Please enter your current password.', 'err'); return; }
+    if (p1.length < 8) { showMsg('pwMsg', 'New password must be at least 8 characters.', 'err'); return; }
+    if (p1 !== p2)      { showMsg('pwMsg', 'Passwords do not match.', 'err'); return; }
+
+    try {
+      const res  = await fetch('/api/change-password', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ currentPassword:current, password:p1 }) });
+      const data = await res.json();
+      if (data.ok) {
+        showMsg('pwMsg', 'Password updated.', 'ok');
+        document.getElementById('pwCurrent').value = '';
+        document.getElementById('pwNew').value     = '';
+        document.getElementById('pwConfirm').value = '';
+      } else {
+        showMsg('pwMsg', data.error || 'Could not update password.', 'err');
+      }
+    } catch(e) {
+      showMsg('pwMsg', 'Something went wrong. Please try again.', 'err');
+    }
+  }
+
+  async function logout() {
+    await fetch('/api/logout', { method:'POST' });
+    window.location.href = '/login';
+  }
+
+  function showMsg(id, text, type) {
+    const el = document.getElementById(id);
+    el.textContent = text;
+    el.className   = 'msg ' + type;
+    el.classList.remove('fade');
+    clearTimeout(el._t);
+    el._t = setTimeout(() => { el.classList.add('fade'); }, 3000);
+  }
+
+  loadAccount();
+</script>
+</body>
+</html>

@@ -1241,8 +1241,15 @@ app.get('/guest',  (req, res) => res.sendFile(path.join(__dirname, 'public', 'gu
 app.get('/guest/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'guest', 'index.html')));
 
 // ── My Account page ──
-app.get('/account',  auth.requireAuth(['client']), (req, res) => res.sendFile(path.join(__dirname, 'public', 'account.html')));
-app.get('/account/', auth.requireAuth(['client']), (req, res) => res.sendFile(path.join(__dirname, 'public', 'account.html')));
+app.get('/account',  (req, res) => {
+  const token = req.cookies?.[auth.COOKIE_NAME];
+  const user  = token ? auth.verifyToken(token) : null;
+  if (!user) return res.redirect('/login');
+  if (user.role === 'client') return res.sendFile(path.join(__dirname, 'public', 'account.html'));
+  if (user.role === 'admin' || user.role === 'facilitator') return res.sendFile(path.join(__dirname, 'public', 'staff-account.html'));
+  return res.redirect('/login');
+});
+app.get('/account/', (req, res) => res.redirect('/account'));
 
 // ── My Account — user self-service ──
 // Returns the current user's full profile including membership and preferences.
@@ -1276,6 +1283,34 @@ app.delete('/api/account', auth.requireAuthApi(['client']), (req, res) => {
   try {
     db.deleteClient(req.user.id);
     res.clearCookie(auth.COOKIE_NAME);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── My Account — admin / facilitator self-service (separate table, no membership/GDPR-export fields) ──
+app.get('/api/staff-account', auth.requireAuthApi(['admin', 'facilitator']), (req, res) => {
+  try {
+    const fac = db.getFacilitatorById(req.user.id);
+    if (!fac) return res.status(404).json({ error: 'Not found.' });
+    const { password_hash, ...safe } = fac;
+    res.json(safe);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch('/api/staff-account', auth.requireAuthApi(['admin', 'facilitator']), (req, res) => {
+  try {
+    const name  = (req.body.name || '').trim();
+    const email = (req.body.email || '').trim().toLowerCase();
+    if (!name)  return res.status(400).json({ error: 'Please enter a name.' });
+    if (!email || !email.includes('@')) return res.status(400).json({ error: 'Please enter a valid email.' });
+
+    // Prevent collision with another facilitator/admin or a client account
+    const existingFac  = db.getFacilitatorByEmail(email);
+    if (existingFac && existingFac.id !== req.user.id) return res.status(400).json({ error: 'That email is already in use.' });
+    const existingUser = db.getUserByEmail(email);
+    if (existingUser) return res.status(400).json({ error: 'That email is already in use.' });
+
+    db.updateFacilitatorDetails(req.user.id, name, email);
     res.json({ ok: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
