@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Set up your deployment</title>
+  <style>
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    html, body { width:100%; min-height:100%; font-family:'Georgia',serif; background:#0d1210; color:rgba(255,255,255,0.82); display:flex; align-items:flex-start; justify-content:center; padding:40px 16px 80px; }
+
+    .panel { width:100%; max-width:560px; display:flex; flex-direction:column; gap:18px; }
+    .wordmark { font-size:10px; letter-spacing:0.25em; text-transform:uppercase; color:rgba(255,255,255,0.35); margin-bottom:4px; }
+    .page-title { font-size:24px; color:rgba(255,255,255,0.85); font-weight:normal; margin-bottom:6px; }
+    .page-sub { font-size:14px; color:rgba(255,255,255,0.4); line-height:1.6; }
+
+    .card { background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.09); border-radius:16px; overflow:hidden; }
+    .card-header { padding:16px 20px 12px; border-bottom:1px solid rgba(255,255,255,0.06); }
+    .card-title { font-size:11px; letter-spacing:0.2em; text-transform:uppercase; color:rgba(255,255,255,0.35); }
+    .card-body { padding:16px 20px 20px; display:flex; flex-direction:column; gap:16px; }
+
+    .field { display:flex; flex-direction:column; gap:5px; }
+    .field label { font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:rgba(255,255,255,0.3); }
+    .field-note { font-size:12px; color:rgba(255,255,255,0.28); line-height:1.5; margin-top:-2px; }
+    .field input, .field select, .field textarea {
+      background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1);
+      border-radius:9px; padding:10px 13px; font-size:14px;
+      color:rgba(255,255,255,0.82); font-family:'Georgia',serif; outline:none;
+    }
+    .field input:focus, .field select:focus, .field textarea:focus { border-color:rgba(180,230,200,0.4); }
+    .field select option { background:#1a2420; }
+    .row { display:flex; gap:12px; }
+    .row .field { flex:1; }
+    .color-row { display:flex; align-items:center; gap:10px; }
+    .color-row input[type=color] { width:44px; height:38px; padding:2px; border-radius:8px; cursor:pointer; }
+
+    .toggle-row { display:flex; align-items:center; justify-content:space-between; padding:12px 0; }
+    .toggle-label { flex:1; }
+    .toggle-name { font-size:14px; color:rgba(255,255,255,0.78); }
+    .toggle-desc { font-size:12px; color:rgba(255,255,255,0.32); margin-top:3px; line-height:1.6; }
+    .toggle { position:relative; width:42px; height:24px; flex-shrink:0; cursor:pointer; }
+    .toggle input { opacity:0; width:0; height:0; position:absolute; }
+    .toggle-track { position:absolute; inset:0; border-radius:12px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.14); transition:all 0.2s; }
+    .toggle input:checked ~ .toggle-track { background:rgba(180,230,200,0.25); border-color:rgba(180,230,200,0.4); }
+    .toggle-thumb { position:absolute; top:3px; left:3px; width:16px; height:16px; border-radius:50%; background:rgba(255,255,255,0.4); transition:all 0.2s; }
+    .toggle input:checked ~ .toggle-thumb { left:22px; background:rgba(180,230,200,0.9); }
+
+    .stripe-note { background:rgba(255,200,130,0.06); border:1px solid rgba(255,200,130,0.18); border-radius:10px; padding:12px 14px; font-size:12px; color:rgba(255,200,130,0.75); line-height:1.6; }
+
+    .btn-primary { padding:13px; border-radius:10px; border:1px solid rgba(180,230,200,0.3); background:rgba(180,230,200,0.1); color:rgba(180,230,200,0.85); font-size:13px; letter-spacing:0.1em; text-transform:uppercase; cursor:pointer; transition:all 0.2s; font-family:'Georgia',serif; }
+    .btn-primary:hover { background:rgba(180,230,200,0.18); }
+    .btn-primary:disabled { opacity:0.5; cursor:not-allowed; }
+    .msg { font-size:13px; text-align:center; min-height:18px; }
+    .msg.err { color:rgba(255,120,100,0.8); }
+  </style>
+</head>
+<body>
+
+<div class="panel">
+  <div>
+    <div class="wordmark">First-run setup</div>
+    <div class="page-title">Let's set this up</div>
+    <div class="page-sub">This runs once, for this deployment only. Nothing here is shared with any other facilitator's copy of this app — each one is fully independent.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">Identity</div></div>
+    <div class="card-body">
+      <div class="field">
+        <label>Organisation / practice name</label>
+        <input type="text" id="brandName" placeholder="e.g. Rotterdam Wellbeing"/>
+      </div>
+      <div class="field">
+        <label>Tagline</label>
+        <input type="text" id="tagline" placeholder="A short line shown under your name"/>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>Accent colour</label>
+          <div class="color-row">
+            <input type="color" id="primaryColor" value="#B4E6C8"/>
+            <input type="text" id="primaryColorHex" value="#B4E6C8" style="flex:1"/>
+          </div>
+        </div>
+        <div class="field">
+          <label>Currency</label>
+          <select id="currency">
+            <option value="gbp">GBP — £</option>
+            <option value="eur">EUR — €</option>
+            <option value="usd">USD — $</option>
+            <option value="cad">CAD — $</option>
+            <option value="aud">AUD — $</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">Legal &amp; contact</div></div>
+    <div class="card-body">
+      <div class="field">
+        <label>Legal entity name</label>
+        <input type="text" id="legalEntityName" placeholder="e.g. Rotterdam University of Applied Sciences"/>
+        <div class="field-note">This appears in your Privacy Policy, Terms of Service, and other legal documents — get it exactly right, since these are real compliance documents.</div>
+      </div>
+      <div class="field">
+        <label>Jurisdiction</label>
+        <input type="text" id="legalJurisdiction" placeholder="e.g. The Netherlands"/>
+      </div>
+      <div class="field">
+        <label>Contact email</label>
+        <input type="email" id="contactEmail" placeholder="contact@yourorganisation.example"/>
+        <div class="field-note">Used as the sender identity for system emails, and shown in your legal documents as the contact address.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">Payments</div></div>
+    <div class="card-body">
+      <div class="toggle-row">
+        <div class="toggle-label">
+          <div class="toggle-name">Accept payments through this app</div>
+          <div class="toggle-desc">If you don't want to charge for membership or courses at all, switch this off — every pricing and checkout screen disappears, and you manage access manually from the admin panel instead.</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="paymentsEnabled" checked onchange="togglePaymentsNote()"/>
+          <span class="toggle-track"></span>
+          <span class="toggle-thumb"></span>
+        </label>
+      </div>
+      <div class="stripe-note" id="stripeNote">
+        If you keep this on, you'll still need to add your own Stripe keys as environment variables in Railway (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET) — those are secrets and can't be entered here. Payments will simply show "not yet available" until you do.
+      </div>
+    </div>
+  </div>
+
+  <div class="msg err" id="setupErr"></div>
+  <button class="btn-primary" id="setupBtn" onclick="submitSetup()">Save and continue</button>
+</div>
+
+<script>
+  function togglePaymentsNote() {
+    document.getElementById('stripeNote').style.display = document.getElementById('paymentsEnabled').checked ? '' : 'none';
+  }
+
+  // Keep the hex text field and the color swatch in sync with each other.
+  document.getElementById('primaryColor').addEventListener('input', function() {
+    document.getElementById('primaryColorHex').value = this.value;
+  });
+  document.getElementById('primaryColorHex').addEventListener('input', function() {
+    if (/^#[0-9a-fA-F]{6}$/.test(this.value)) document.getElementById('primaryColor').value = this.value;
+  });
+
+  async function loadCurrentConfig() {
+    try {
+      const res  = await fetch('/api/setup/config');
+      const cfg  = await res.json();
+      if (cfg.brand_name)         document.getElementById('brandName').value = cfg.brand_name === 'Deeper Mindfulness' ? '' : cfg.brand_name;
+      if (cfg.tagline)            document.getElementById('tagline').value = cfg.tagline;
+      if (cfg.primary_color)      { document.getElementById('primaryColor').value = cfg.primary_color; document.getElementById('primaryColorHex').value = cfg.primary_color; }
+      if (cfg.currency)           document.getElementById('currency').value = cfg.currency;
+      if (cfg.legal_entity_name && cfg.legal_entity_name !== 'Per Norrgren trading as Deeper Mindfulness') document.getElementById('legalEntityName').value = cfg.legal_entity_name;
+      if (cfg.legal_jurisdiction) document.getElementById('legalJurisdiction').value = cfg.legal_jurisdiction === 'United Kingdom' ? '' : cfg.legal_jurisdiction;
+      if (cfg.contact_email)      document.getElementById('contactEmail').value = cfg.contact_email;
+      document.getElementById('paymentsEnabled').checked = !!cfg.payments_enabled;
+      togglePaymentsNote();
+    } catch(e) { /* fine — just start from blank defaults */ }
+  }
+
+  async function submitSetup() {
+    const err = document.getElementById('setupErr');
+    const btn = document.getElementById('setupBtn');
+    const body = {
+      brandName: document.getElementById('brandName').value.trim(),
+      tagline: document.getElementById('tagline').value.trim(),
+      primaryColor: document.getElementById('primaryColorHex').value.trim(),
+      currency: document.getElementById('currency').value,
+      legalEntityName: document.getElementById('legalEntityName').value.trim(),
+      legalJurisdiction: document.getElementById('legalJurisdiction').value.trim(),
+      contactEmail: document.getElementById('contactEmail').value.trim(),
+      paymentsEnabled: document.getElementById('paymentsEnabled').checked,
+    };
+    if (!body.brandName) { err.textContent = 'Organisation name is required.'; return; }
+    if (!body.legalEntityName) { err.textContent = 'Legal entity name is required.'; return; }
+    if (!body.contactEmail || !body.contactEmail.includes('@')) { err.textContent = 'A valid contact email is required.'; return; }
+
+    err.textContent = '';
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      const res  = await fetch('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (data.ok) {
+        window.location.href = '/admin/';
+      } else {
+        err.textContent = data.error || 'Something went wrong. Please try again.';
+        btn.disabled = false; btn.textContent = 'Save and continue';
+      }
+    } catch(e) {
+      err.textContent = 'Something went wrong. Please try again.';
+      btn.disabled = false; btn.textContent = 'Save and continue';
+    }
+  }
+
+  loadCurrentConfig();
+</script>
+</body>
+</html>

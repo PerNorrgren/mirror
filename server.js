@@ -89,14 +89,15 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
           const user = db.getUser(userId);
           const instance = db.getCourseInstance(courseInstanceId);
           if (user?.email && instance) {
+            const b = brand();
             await sendEmail(user.email, `You're enrolled — ${instance.title}`,
               `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
-                <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:24px">Deeper Mindfulness</div>
+                <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:24px">${b.name}</div>
                 <h2 style="font-weight:normal;font-size:22px;margin-bottom:16px">You're in, ${user.name}.</h2>
                 <p style="font-size:15px;line-height:1.8;margin-bottom:20px">Payment received — you're enrolled in <strong>${instance.title}</strong>. Start whenever you're ready.</p>
                 <a href="${APP_URL}/client/" style="display:inline-block;padding:12px 28px;border-radius:8px;background:#2d7873;color:#fff;text-decoration:none;font-size:13px;letter-spacing:0.08em">Go to your course</a>
                 <hr style="border:none;border-top:1px solid #e8e8e8;margin:32px 0"/>
-                <p style="font-size:12px;color:#aaa">Making the practices land and last for life.</p>
+                <p style="font-size:12px;color:#aaa">${b.tagline}</p>
               </div>`
             );
           }
@@ -124,15 +125,16 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
         // Send welcome email
         const user = db.getUser(userId);
         if (user?.email) {
+          const b = brand();
           await sendEmail(user.email,
-            'Welcome to Deeper Mindfulness — you\'re a Member',
+            `Welcome to ${b.name} — you're a Member`,
             `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
-              <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:24px">Deeper Mindfulness</div>
+              <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:24px">${b.name}</div>
               <h2 style="font-weight:normal;font-size:22px;margin-bottom:16px">You're in, ${user.name}.</h2>
-              <p style="font-size:15px;line-height:1.8;margin-bottom:20px">Your membership is active. The full practice library is open, and your daily message from Per starts tomorrow morning.</p>
+              <p style="font-size:15px;line-height:1.8;margin-bottom:20px">Your membership is active. The full practice library is open, and your daily message starts tomorrow morning.</p>
               <a href="${APP_URL}/client/" style="display:inline-block;padding:12px 28px;border-radius:8px;background:#2d7873;color:#fff;text-decoration:none;font-size:13px;letter-spacing:0.08em">Go to your practice space</a>
               <hr style="border:none;border-top:1px solid #e8e8e8;margin:32px 0"/>
-              <p style="font-size:12px;color:#aaa">Making the practices land and last for life. · <a href="${APP_URL}/account" style="color:#888">Manage my account</a></p>
+              <p style="font-size:12px;color:#aaa">${b.tagline} · <a href="${APP_URL}/account" style="color:#888">Manage my account</a></p>
             </div>`
           );
         }
@@ -145,13 +147,7 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
         const invoice = event.data.object;
         const subId   = invoice.subscription;
         if (!subId) break;
-        const user = db.queryAll ? null : null; // use raw query below
-        const users = db.getDb ? null : null;
         // Find user by stripe_subscription_id
-        const found = db.queryAll
-          ? null
-          : null;
-        // Use direct DB query via exported function
         const userRec = db.getUserByStripeSubscription ? db.getUserByStripeSubscription(subId) : null;
         if (userRec) {
           const d = new Date(); d.setMonth(d.getMonth() + 1);
@@ -170,12 +166,13 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
           db.downgradeToExplorer(userRec.id);
           const user = db.getUser(userRec.id);
           if (user?.email) {
+            const b = brand();
             await sendEmail(user.email,
-              'Your Deeper Mindfulness membership has ended',
+              `Your ${b.name} membership has ended`,
               `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
-                <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:24px">Deeper Mindfulness</div>
+                <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:24px">${b.name}</div>
                 <p style="font-size:15px;line-height:1.8;margin-bottom:20px">Your membership has ended. You can continue exploring as a free member, or <a href="${APP_URL}/membership" style="color:#2d7873">rejoin at any time</a>.</p>
-                <p style="font-size:12px;color:#aaa">Making the practices land and last for life.</p>
+                <p style="font-size:12px;color:#aaa">${b.tagline}</p>
               </div>`
             );
           }
@@ -188,11 +185,23 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
         const custId  = invoice.customer;
         const userRec = db.getUserByStripeCustomer ? db.getUserByStripeCustomer(custId) : null;
         if (userRec?.email) {
+          const b = brand();
+          // Generate a real billing portal session for THIS customer rather
+          // than a static link — a fixed URL can't be correct per-customer
+          // anyway, and was previously hardcoded to one specific Stripe
+          // account's test-mode portal.
+          let portalUrl = `${APP_URL}/account`;
+          try {
+            if (stripe && custId) {
+              const portal = await stripe.billingPortal.sessions.create({ customer: custId, return_url: `${APP_URL}/account` });
+              portalUrl = portal.url;
+            }
+          } catch(e) { console.error('[stripe billing portal]', e.message); }
           await sendEmail(userRec.email,
-            'Payment issue with your Deeper Mindfulness membership',
+            `Payment issue with your ${b.name} membership`,
             `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
               <p style="font-size:15px;line-height:1.8;margin-bottom:20px">We couldn't process your membership payment. Please update your payment details to keep your access.</p>
-              <a href="https://billing.stripe.com/p/login/test_00g" style="display:inline-block;padding:12px 28px;border-radius:8px;background:#2d7873;color:#fff;text-decoration:none;font-size:13px">Update payment details</a>
+              <a href="${portalUrl}" style="display:inline-block;padding:12px 28px;border-radius:8px;background:#2d7873;color:#fff;text-decoration:none;font-size:13px">Update payment details</a>
             </div>`
           );
         }
@@ -246,6 +255,19 @@ function stripMarkdown(text) {
 }
 
 // ── Email ──
+// Reads this deployment's own identity (Path A: one deployment per
+// facilitator/org) so email templates never hardcode a specific
+// organization's name — db.getAppConfig() is synchronous (sql.js is
+// in-memory), so this is safe to call anywhere without await.
+function brand() {
+  const cfg = db.getAppConfig() || {};
+  return {
+    name: cfg.brand_name || 'Deeper Mindfulness',
+    tagline: cfg.tagline || 'Making the practices land and last for life.',
+    contactEmail: cfg.contact_email || EMAIL_FROM,
+  };
+}
+
 async function sendEmail(to, subject, html) {
   if (!BREVO_API_KEY) { console.log('BREVO_API_KEY not set — skipping email to', to); return; }
   try {
@@ -253,7 +275,7 @@ async function sendEmail(to, subject, html) {
       method: 'POST',
       headers: { 'api-key': BREVO_API_KEY, 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify({
-        sender: { name: 'Deeper Mindfulness', email: EMAIL_FROM },
+        sender: { name: brand().name, email: EMAIL_FROM },
         to: [{ email: to }], subject, htmlContent: html
       })
     });
@@ -264,9 +286,10 @@ async function sendEmail(to, subject, html) {
 }
 
 function emailWelcomeFacilitator(name, email, tempPassword) {
-  return sendEmail(email, 'Welcome to Deeper Mindfulness — your facilitator account',
+  const b = brand();
+  return sendEmail(email, `Welcome to ${b.name} — your facilitator account`,
     `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
-      <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">Deeper Mindfulness</div>
+      <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">${b.name}</div>
       <h1 style="font-size:22px;font-weight:normal;color:#1a1a1a;margin-bottom:24px">Welcome, ${name}</h1>
       <p style="font-size:15px;line-height:1.7;color:#444;margin-bottom:24px">Your facilitator account has been created.</p>
       <div style="background:#f5f5f0;border-radius:10px;padding:20px;margin-bottom:24px">
@@ -279,15 +302,16 @@ function emailWelcomeFacilitator(name, email, tempPassword) {
       </div>
       <p style="font-size:14px;line-height:1.7;color:#666">You will be asked to set a new password when you first sign in.</p>
       <hr style="border:none;border-top:1px solid #e0e0e0;margin:28px 0"/>
-      <div style="font-size:12px;color:#aaa">Deeper Mindfulness · Per Norrgren</div>
+      <div style="font-size:12px;color:#aaa">${b.name}</div>
     </div>`
   );
 }
 
 function emailWelcomeClient(name, email, tempPassword) {
-  return sendEmail(email, 'Welcome to Deeper Mindfulness',
+  const b = brand();
+  return sendEmail(email, `Welcome to ${b.name}`,
     `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
-      <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">Deeper Mindfulness</div>
+      <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">${b.name}</div>
       <h1 style="font-size:22px;font-weight:normal;color:#1a1a1a;margin-bottom:24px">Welcome, ${name}</h1>
       <p style="font-size:15px;line-height:1.7;color:#444;margin-bottom:24px">Your account is ready.</p>
       <div style="background:#f5f5f0;border-radius:10px;padding:20px;margin-bottom:24px">
@@ -300,7 +324,7 @@ function emailWelcomeClient(name, email, tempPassword) {
       </div>
       <p style="font-size:14px;line-height:1.7;color:#666">You will be asked to choose a new password when you sign in.</p>
       <hr style="border:none;border-top:1px solid #e0e0e0;margin:28px 0"/>
-      <div style="font-size:12px;color:#aaa">Deeper Mindfulness · Per Norrgren</div>
+      <div style="font-size:12px;color:#aaa">${b.name}</div>
     </div>`
   );
 }
@@ -308,9 +332,10 @@ function emailWelcomeClient(name, email, tempPassword) {
 // ── Trial email sequence (Per Bot 5, item 4) ──
 // Day 3: what you've unlocked. Day 10: 4 days left. Day 14: trial ended.
 function emailTrialDay3(user) {
-  return sendEmail(user.email, 'Here\'s what you\'ve unlocked at Deeper Mindfulness',
+  const b = brand();
+  return sendEmail(user.email, `Here's what you've unlocked at ${b.name}`,
     `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
-      <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">Deeper Mindfulness</div>
+      <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">${b.name}</div>
       <h1 style="font-size:22px;font-weight:normal;color:#1a1a1a;margin-bottom:24px">Hello ${user.name},</h1>
       <p style="font-size:15px;line-height:1.7;color:#444;margin-bottom:20px">You're a few days into your trial. A quick look at what's already available to you:</p>
       <ul style="font-size:15px;line-height:1.9;color:#444;margin:0 0 24px;padding-left:20px">
@@ -321,53 +346,66 @@ function emailTrialDay3(user) {
       <p style="font-size:14px;line-height:1.7;color:#666;margin-bottom:24px">No pressure to do anything with this today. Just wanted you to know it's there.</p>
       <p style="font-size:14px;line-height:1.7"><a href="${APP_URL}/client/" style="color:#2d6a4f">Visit your practice space →</a></p>
       <hr style="border:none;border-top:1px solid #e0e0e0;margin:28px 0"/>
-      <p style="font-size:12px;color:#aaa">Deeper Mindfulness · Per Norrgren · <a href="${APP_URL}/account" style="color:#aaa">Manage email preferences</a></p>
+      <p style="font-size:12px;color:#aaa">${b.name} · <a href="${APP_URL}/account" style="color:#aaa">Manage email preferences</a></p>
     </div>`
   );
 }
 
 function emailTrialDay10(user) {
+  const b = brand();
+  const cfg = db.getAppConfig() || {};
+  const paymentsOn = cfg.payments_enabled !== 0;
   return sendEmail(user.email, 'Four days left on your trial',
     `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
-      <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">Deeper Mindfulness</div>
+      <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">${b.name}</div>
       <h1 style="font-size:22px;font-weight:normal;color:#1a1a1a;margin-bottom:24px">Hello ${user.name},</h1>
       <p style="font-size:15px;line-height:1.7;color:#444;margin-bottom:20px">Your trial ends in four days. After that, your account moves to the free Explorer tier — you'll keep your history, but full access ends.</p>
+      ${paymentsOn ? `
       <p style="font-size:15px;line-height:1.7;color:#444;margin-bottom:24px">If it's been useful, you can continue anytime, no rush and no pressure either way.</p>
       <div style="background:#f5f5f0;border-radius:10px;padding:20px;margin-bottom:24px">
         <div style="font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:#888;margin-bottom:6px">Membership</div>
-        <div style="font-size:15px;color:#1a1a1a">£5.99/month · £59/year · £100 one-off, lifetime</div>
+        <div style="font-size:15px;color:#1a1a1a">See current membership options on your account page.</div>
       </div>
       <p style="font-size:14px;line-height:1.7"><a href="${APP_URL}/membership" style="color:#2d6a4f">See membership options →</a></p>
+      ` : `
+      <p style="font-size:15px;line-height:1.7;color:#444;margin-bottom:24px">The free tier still gives you access to what's openly available — no action needed from you.</p>
+      `}
       <hr style="border:none;border-top:1px solid #e0e0e0;margin:28px 0"/>
-      <p style="font-size:12px;color:#aaa">Deeper Mindfulness · Per Norrgren · <a href="${APP_URL}/account" style="color:#aaa">Manage email preferences</a></p>
+      <p style="font-size:12px;color:#aaa">${b.name} · <a href="${APP_URL}/account" style="color:#aaa">Manage email preferences</a></p>
     </div>`
   );
 }
 
 function emailTrialDay14(user) {
+  const b = brand();
+  const cfg = db.getAppConfig() || {};
+  const paymentsOn = cfg.payments_enabled !== 0;
   return sendEmail(user.email, 'Your trial has ended',
     `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
-      <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">Deeper Mindfulness</div>
+      <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">${b.name}</div>
       <h1 style="font-size:22px;font-weight:normal;color:#1a1a1a;margin-bottom:24px">Hello ${user.name},</h1>
       <p style="font-size:15px;line-height:1.7;color:#444;margin-bottom:20px">Your 14-day trial has come to an end. Your account is now on the free Explorer tier — your history and saved content are still there, and the free content is still available.</p>
+      ${paymentsOn ? `
       <p style="font-size:15px;line-height:1.7;color:#444;margin-bottom:24px">If you'd like full access back, you're welcome anytime.</p>
       <p style="font-size:14px;line-height:1.7"><a href="${APP_URL}/membership" style="color:#2d6a4f">See membership options →</a></p>
+      ` : ''}
       <hr style="border:none;border-top:1px solid #e0e0e0;margin:28px 0"/>
-      <p style="font-size:12px;color:#aaa">Deeper Mindfulness · Per Norrgren · <a href="${APP_URL}/account" style="color:#aaa">Manage email preferences</a></p>
+      <p style="font-size:12px;color:#aaa">${b.name} · <a href="${APP_URL}/account" style="color:#aaa">Manage email preferences</a></p>
     </div>`
   );
 }
 
 // ── Inactivity reminder (Per Bot 5, item 8) ──
 function emailInactivityReminder(user) {
+  const b = brand();
   return sendEmail(user.email, 'Whenever you\'re ready',
     `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
-      <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">Deeper Mindfulness</div>
+      <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">${b.name}</div>
       <h1 style="font-size:22px;font-weight:normal;color:#1a1a1a;margin-bottom:24px">Hello ${user.name},</h1>
       <p style="font-size:15px;line-height:1.7;color:#444;margin-bottom:24px">It's been a little while. No pressure at all — just wanted to leave the door open, in case a few minutes today would help.</p>
       <p style="font-size:14px;line-height:1.7"><a href="${APP_URL}/client/" style="color:#2d6a4f">Visit your practice space →</a></p>
       <hr style="border:none;border-top:1px solid #e0e0e0;margin:28px 0"/>
-      <p style="font-size:12px;color:#aaa">Deeper Mindfulness · Per Norrgren · <a href="${APP_URL}/account" style="color:#aaa">Manage email preferences</a></p>
+      <p style="font-size:12px;color:#aaa">${b.name} · <a href="${APP_URL}/account" style="color:#aaa">Manage email preferences</a></p>
     </div>`
   );
 }
@@ -390,39 +428,42 @@ function emailFacilitatorRequestReceivedToAdmin(request) {
 }
 
 function emailFacilitatorRequestApproved(request) {
+  const b = brand();
   return sendEmail(request.email, 'Your facilitator request has been approved',
     `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
-      <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">Deeper Mindfulness</div>
+      <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">${b.name}</div>
       <h1 style="font-size:22px;font-weight:normal;color:#1a1a1a;margin-bottom:24px">Hello ${request.name},</h1>
       <p style="font-size:15px;line-height:1.7;color:#444;margin-bottom:24px">Your request to become a facilitator has been approved. Your account now has facilitator access.</p>
       <p style="font-size:14px;line-height:1.7"><a href="${APP_URL}/facilitator/" style="color:#2d6a4f">Go to your facilitator dashboard →</a></p>
       <hr style="border:none;border-top:1px solid #e0e0e0;margin:28px 0"/>
-      <p style="font-size:12px;color:#aaa">Deeper Mindfulness · Per Norrgren</p>
+      <p style="font-size:12px;color:#aaa">${b.name}</p>
     </div>`
   );
 }
 
 function emailFacilitatorRequestDeclined(request) {
+  const b = brand();
   return sendEmail(request.email, 'About your facilitator request',
     `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
-      <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">Deeper Mindfulness</div>
+      <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">${b.name}</div>
       <h1 style="font-size:22px;font-weight:normal;color:#1a1a1a;margin-bottom:24px">Hello ${request.name},</h1>
       <p style="font-size:15px;line-height:1.7;color:#444;margin-bottom:20px">Thank you for your interest in facilitating. We're not able to move forward with this right now.</p>
       <p style="font-size:15px;line-height:1.7;color:#444;margin-bottom:24px">If you haven't yet spent time with the practice as a member yourself, that's usually the best next step — we'd genuinely welcome hearing from you again once you have.</p>
       <hr style="border:none;border-top:1px solid #e0e0e0;margin:28px 0"/>
-      <p style="font-size:12px;color:#aaa">Deeper Mindfulness · Per Norrgren</p>
+      <p style="font-size:12px;color:#aaa">${b.name}</p>
     </div>`
   );
 }
 
 function emailFacilitatorRequestDeferred(request) {
+  const b = brand();
   return sendEmail(request.email, 'About your facilitator request',
     `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
-      <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">Deeper Mindfulness</div>
+      <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">${b.name}</div>
       <h1 style="font-size:22px;font-weight:normal;color:#1a1a1a;margin-bottom:24px">Hello ${request.name},</h1>
       <p style="font-size:15px;line-height:1.7;color:#444;margin-bottom:24px">Thank you for your request to become a facilitator. We need a little more time to consider it — no action needed from you, we'll follow up before too long.</p>
       <hr style="border:none;border-top:1px solid #e0e0e0;margin:28px 0"/>
-      <p style="font-size:12px;color:#aaa">Deeper Mindfulness · Per Norrgren</p>
+      <p style="font-size:12px;color:#aaa">${b.name}</p>
     </div>`
   );
 }
@@ -443,6 +484,10 @@ function roleRouter(allowedRoles, file) {
       const map = { admin: '/admin/', facilitator: '/facilitator/', client: '/client/' };
       return res.redirect(map[user.role] || '/login');
     }
+    // A fresh clone's admin panel would otherwise show default branding —
+    // send them to /setup instead of a half-configured dashboard, even if
+    // they navigated here directly rather than via a fresh login.
+    if (user.role === 'admin' && !db.isSetupComplete()) return res.redirect('/setup');
     res.sendFile(path.join(__dirname, file));
   };
 }
@@ -463,6 +508,10 @@ app.post('/api/login', async (req, res) => {
   const token = auth.createToken(user);
   res.cookie(auth.COOKIE_NAME, token, auth.COOKIE_OPTIONS);
   if (user.mustChangePassword) return res.json({ redirect: '/change-password' });
+
+  // A fresh clone (Path A: one deployment per facilitator/org) sends its
+  // first admin straight to setup rather than an empty, unbranded dashboard.
+  if (user.role === 'admin' && !db.isSetupComplete()) return res.json({ redirect: '/setup' });
 
   // Check if facilitator/admin also has a client record — show role chooser
   if (user.role === 'facilitator' || user.role === 'admin') {
@@ -571,7 +620,7 @@ app.patch('/api/admin/facilitators/:id', auth.requireAuthApi(['admin']), async (
     const tempPassword = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6).toUpperCase();
     const hash = await auth.hashPassword(tempPassword);
     db.updateFacilitatorPassword(req.params.id, hash);
-    sendEmail(fac.email, 'Your Deeper Mindfulness password has been reset',
+    sendEmail(fac.email, `Your ${brand().name} password has been reset`,
       `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px">
         <h1 style="font-size:22px;font-weight:normal">Password reset</h1>
         <p>Your temporary password: <strong style="font-family:monospace;font-size:18px">${tempPassword}</strong></p>
@@ -752,7 +801,7 @@ app.post('/api/client/enrol', auth.requireAuthApi(['client']), async (req, res) 
           // stripe_price_id was explicitly set (e.g. to reuse a shared price).
           line_items: [instance.stripe_price_id
             ? { price: instance.stripe_price_id, quantity: 1 }
-            : { price_data: { currency: 'gbp', product_data: { name: `${instance.title} — Deeper Mindfulness` }, unit_amount: instance.price_cents }, quantity: 1 }
+            : { price_data: { currency: (db.getAppConfig()?.currency || 'gbp'), product_data: { name: `${instance.title} — ${brand().name}` }, unit_amount: instance.price_cents }, quantity: 1 }
           ],
           mode: 'payment',
           success_url: `${APP_URL}/client/?enrolled=1`,
@@ -1282,12 +1331,12 @@ app.post('/api/invitations', auth.requireAuthApi(['facilitator','admin']), async
     const isKnown   = !!existing;
 
     await sendEmail(emailLower,
-      `${fac.name} has invited you to Deeper Mindfulness`,
+      `${fac.name} has invited you to ${brand().name}`,
       `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
-        <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">Deeper Mindfulness</div>
+        <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">${brand().name}</div>
         <h1 style="font-size:22px;font-weight:normal;color:#1a1a1a;margin-bottom:16px">You've been invited</h1>
         <p style="font-size:15px;line-height:1.7;color:#444;margin-bottom:24px">
-          ${fac.name} has invited you to work together on Deeper Mindfulness — a body-based practice companion.
+          ${fac.name} has invited you to work together on ${brand().name} — a body-based practice companion.
         </p>
         <a href="${inviteUrl}" style="display:inline-block;padding:14px 28px;background:#2d6a4f;color:#fff;text-decoration:none;border-radius:8px;font-size:14px;letter-spacing:0.05em">
           ${isKnown ? 'Accept invitation' : 'Create your account'}
@@ -1296,7 +1345,7 @@ app.post('/api/invitations', auth.requireAuthApi(['facilitator','admin']), async
           This invitation expires in 7 days. If you didn't expect this, you can ignore it.
         </p>
         <hr style="border:none;border-top:1px solid #e0e0e0;margin:28px 0"/>
-        <div style="font-size:12px;color:#aaa">Deeper Mindfulness · Per Norrgren</div>
+        <div style="font-size:12px;color:#aaa">${brand().name}</div>
       </div>`
     );
 
@@ -2364,6 +2413,87 @@ app.get('/become-a-facilitator', (req, res) => res.sendFile(path.join(__dirname,
 app.get('/become-a-facilitator/', (req, res) => res.redirect('/become-a-facilitator'));
 app.get('/membership/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'membership.html')));
 
+// ── First-run setup (Path A: one deployment per facilitator/org) ──
+// Admin-only. Serves the wizard on a fresh clone; once setup_completed=1,
+// redirects straight to /admin/ rather than letting it be revisited as a
+// first-run flow (still reachable as ordinary settings via the API below).
+app.get('/setup', auth.requireAuth(['admin']), (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'setup.html'));
+});
+
+app.get('/api/setup/config', auth.requireAuthApi(['admin']), (req, res) => {
+  try { res.json(db.getAppConfig()); }
+  catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/setup', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    const { brandName, tagline, primaryColor, contactEmail, currency, legalEntityName, legalJurisdiction, paymentsEnabled } = req.body;
+    if (!brandName || !brandName.trim()) return res.status(400).json({ error: 'Organisation name is required.' });
+    if (!legalEntityName || !legalEntityName.trim()) return res.status(400).json({ error: 'Legal entity name is required — it appears in your Privacy Policy and Terms.' });
+    if (!contactEmail || !contactEmail.includes('@')) return res.status(400).json({ error: 'A valid contact email is required.' });
+
+    db.updateAppConfig({
+      brand_name: brandName.trim(),
+      tagline: (tagline || '').trim() || 'Making the practices land and last for life.',
+      primary_color: primaryColor || '#B4E6C8',
+      contact_email: contactEmail.trim().toLowerCase(),
+      currency: currency || 'gbp',
+      legal_entity_name: legalEntityName.trim(),
+      legal_jurisdiction: (legalJurisdiction || '').trim() || 'United Kingdom',
+      payments_enabled: paymentsEnabled ? 1 : 0,
+      setup_completed: 1,
+    });
+
+    // Regenerate the legal documents now, with the real identity — they
+    // seeded with placeholder defaults on first boot, before this form
+    // could ever have been filled in.
+    db.regenerateLegalDocumentsFromConfig(() => uuidv4());
+
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Called any time from admin settings later (not just first-run) — same
+// endpoint, same regeneration step, so identity changes always keep the
+// legal documents in sync.
+app.patch('/api/setup', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    const fieldMap = {
+      brandName: 'brand_name', tagline: 'tagline', primaryColor: 'primary_color',
+      contactEmail: 'contact_email', currency: 'currency',
+      legalEntityName: 'legal_entity_name', legalJurisdiction: 'legal_jurisdiction',
+      paymentsEnabled: 'payments_enabled',
+    };
+    const fields = {};
+    Object.keys(fieldMap).forEach(k => {
+      if (req.body[k] === undefined) return;
+      fields[fieldMap[k]] = k === 'paymentsEnabled' ? (req.body[k] ? 1 : 0) : req.body[k];
+    });
+    db.updateAppConfig(fields);
+    if (fields.legal_entity_name || fields.contact_email || fields.legal_jurisdiction) {
+      db.regenerateLegalDocumentsFromConfig(() => uuidv4());
+    }
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Public — the safe subset of config any page's frontend can read to render
+// brand name/color without exposing anything sensitive.
+app.get('/api/config', (req, res) => {
+  try {
+    const cfg = db.getAppConfig() || {};
+    res.json({
+      brandName: cfg.brand_name,
+      tagline: cfg.tagline,
+      primaryColor: cfg.primary_color,
+      logoUrl: cfg.logo_url,
+      paymentsEnabled: !!cfg.payments_enabled,
+      currency: cfg.currency,
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Stripe: create Checkout Session ──
 app.post('/api/membership/checkout', auth.requireAuthApi(['client']), async (req, res) => {
   if (!stripe) return res.status(503).json({ error: 'Payment system not configured yet.' });
@@ -2475,13 +2605,14 @@ app.post('/api/admin/motd/generate', auth.requireAuthApi(['admin']), async (req,
 
 function maybeSendMotdLowStockAlert(remaining) {
   if (remaining > 5) return;
-  sendEmail(process.env.ADMIN_EMAIL || 'per@deepermindfulness.org',
+  const b = brand();
+  sendEmail(process.env.ADMIN_EMAIL || b.contactEmail,
     `⚠️ Message of the day — only ${remaining} approved message${remaining === 1 ? '' : 's'} remaining`,
     `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px">
       <h2 style="font-weight:normal">Message queue running low</h2>
       <p>There ${remaining === 1 ? 'is' : 'are'} only <strong>${remaining}</strong> approved message${remaining === 1 ? '' : 's'} of the day left in the queue.</p>
       <p>Please add and approve more at <a href="${APP_URL}/admin/">${APP_URL}/admin/</a></p>
-      <hr/><p style="font-size:12px;color:#aaa">Deeper Mindfulness · Per Bot</p>
+      <hr/><p style="font-size:12px;color:#aaa">${b.name}</p>
     </div>`
   );
 }
@@ -2540,15 +2671,16 @@ async function sendDailyMotd() {
 
   // Send to each recipient individually so we can personalise the greeting
   let sent = 0;
+  const b = brand();
   for (const user of recipients) {
     await sendEmail(user.email,
-      'From Deeper Mindfulness — a moment for today',
+      `From ${b.name} — a moment for today`,
       `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
-        <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:24px">Deeper Mindfulness</div>
+        <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:24px">${b.name}</div>
         <p style="font-size:17px;line-height:1.8;color:#1a1a1a;margin-bottom:32px">${motd.body.replace(/\n/g, '<br/>')}</p>
         <hr style="border:none;border-top:1px solid #e0e0e0;margin:28px 0"/>
         <p style="font-size:12px;color:#aaa">
-          You're receiving this because you're a member of Deeper Mindfulness.
+          You're receiving this because you're a member of ${b.name}.
           <a href="${APP_URL}/client/" style="color:#2d6a4f">Visit your practice space</a> ·
           <a href="${APP_URL}/account" style="color:#888">Manage preferences</a>
         </p>
@@ -2606,9 +2738,10 @@ app.use((err, req, res, next) => {
   await db.getDb();
   const adminEmail = process.env.ADMIN_EMAIL || 'per@deepermindfulness.org';
   const adminPass  = process.env.ADMIN_PASSWORD || 'changeme123';
+  const adminName  = process.env.ADMIN_NAME || 'Admin';
   if (!db.getFacilitatorByEmail(adminEmail)) {
     const hash = await auth.hashPassword(adminPass);
-    db.createFacilitator(uuidv4(), 'Per Norrgren', adminEmail, hash, 'admin');
+    db.createFacilitator(uuidv4(), adminName, adminEmail, hash, 'admin');
     console.log(`Admin created: ${adminEmail}`);
   }
   startCronJobs({ db, sendDailyMotd, emailTrialDay3, emailTrialDay10, emailTrialDay14, emailInactivityReminder });

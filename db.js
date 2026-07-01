@@ -14,6 +14,28 @@ async function getDb() {
     db = new SQL.Database();
   }
 
+  // ── App configuration (Path A: one deployment per facilitator/org) ──
+  // Single-row settings for THIS deployment's brand identity and business
+  // rules. Deliberately holds no secrets — Stripe/Brevo/DB credentials stay
+  // as Railway env vars, never entered through a web form or stored here.
+  // payments_enabled lets a facilitator opt out of Stripe entirely; when
+  // false, pricing/checkout UI hides throughout the app rather than just
+  // failing gracefully when Stripe isn't configured.
+  db.run(`CREATE TABLE IF NOT EXISTS app_config (
+    id TEXT PRIMARY KEY DEFAULT 'default',
+    brand_name TEXT NOT NULL DEFAULT 'Deeper Mindfulness',
+    tagline TEXT NOT NULL DEFAULT 'Making the practices land and last for life.',
+    primary_color TEXT NOT NULL DEFAULT '#B4E6C8',
+    logo_url TEXT,
+    contact_email TEXT,
+    currency TEXT NOT NULL DEFAULT 'gbp',
+    legal_entity_name TEXT NOT NULL DEFAULT 'Per Norrgren trading as Deeper Mindfulness',
+    legal_jurisdiction TEXT NOT NULL DEFAULT 'United Kingdom',
+    payments_enabled INTEGER NOT NULL DEFAULT 1,
+    setup_completed INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+
   // ── Facilitators ──
   db.run(`CREATE TABLE IF NOT EXISTS facilitators (
     id TEXT PRIMARY KEY,
@@ -525,6 +547,12 @@ async function getDb() {
   } catch(e) {
     // clients table doesn't exist or migration already done — fine
   }
+
+  // Seed app config if empty — must happen before legal documents, since
+  // legal doc seeding reads this deployment's identity to substitute into
+  // the templates.
+  const existingConfig = queryAll('SELECT id FROM app_config LIMIT 1');
+  if (!existingConfig.length) seedAppConfig();
 
   // Seed categories if empty
   const existing = queryAll('SELECT id FROM categories LIMIT 1');
@@ -1758,10 +1786,54 @@ function getUserByStripeSubscription(stripeSubscriptionId) {
 
 // ── Legal document functions ──
 
+// ── App config (Path A: one deployment per facilitator/org) ──
+function getAppConfig() { return queryOne(`SELECT * FROM app_config WHERE id='default'`); }
+
+function updateAppConfig(fields) {
+  const allowed = ['brand_name','tagline','primary_color','logo_url','contact_email','currency','legal_entity_name','legal_jurisdiction','payments_enabled','setup_completed'];
+  const sets = Object.keys(fields).filter(k => allowed.includes(k));
+  if (!sets.length) return;
+  getDbSync().run(
+    `UPDATE app_config SET ${sets.map(k=>`${k}=?`).join(',')} WHERE id='default'`,
+    sets.map(k => fields[k])
+  );
+  save();
+}
+
+function isSetupComplete() {
+  const config = getAppConfig();
+  return !!(config && config.setup_completed);
+}
+
+function seedAppConfig() {
+  // An existing deployment (Per's own live site, mid-migration into this
+  // feature) already has published legal documents from before app_config
+  // existed at all — that's the signal this is NOT a fresh clone, and it
+  // must never be redirected to /setup or have its identity reset. A
+  // genuinely new clone (Rotterdam Uni, or the next one) has an empty
+  // legal_documents table until seedLegalDocuments runs a few lines below
+  // this, so it correctly lands as setup_completed=0.
+  const alreadyLive = queryAll('SELECT id FROM legal_documents LIMIT 1').length > 0;
+  getDbSync().run(
+    `INSERT OR IGNORE INTO app_config (id, setup_completed) VALUES ('default', ?)`,
+    [alreadyLive ? 1 : 0]
+  );
+  save();
+  console.log(alreadyLive
+    ? '[db] app_config seeded — existing deployment detected, setup marked complete.'
+    : '[db] app_config seeded with defaults — visit /setup to configure this deployment.');
+}
+
 function seedLegalDocuments() {
   try {
-    const { LEGAL_DOCS } = require('./legal_docs_seed');
-    LEGAL_DOCS.forEach(doc => {
+    const { buildLegalDocs } = require('./legal_docs_seed');
+    const config = getAppConfig();
+    const docs = buildLegalDocs({
+      legalEntityName: config?.legal_entity_name,
+      contactEmail: config?.contact_email,
+      legalJurisdiction: config?.legal_jurisdiction,
+    });
+    docs.forEach(doc => {
       db.run(
         `INSERT OR IGNORE INTO legal_documents
           (id, slug, title, version, content, requires_consent, published, published_at)
@@ -1837,6 +1909,32 @@ function publishLegalDocument(id) {
   save();
 }
 
+// Regenerate all five legal documents as new published versions using the
+// current app_config identity. Needed because legal docs seed with defaults
+// on first boot — before a facilitator has ever reached /setup — so this is
+// how their real identity actually lands in the live documents once they
+// submit the setup form (or later change legal_entity_name/contact_email/
+// jurisdiction from settings). Old versions are never deleted — same
+// versioning model the rest of the legal document system already uses, so
+// anyone who consented to an earlier version keeps that record.
+// generateId: a () => string callback — kept as a parameter rather than
+// requiring uuid directly in db.js, since every other create function here
+// takes its id from the caller.
+function regenerateLegalDocumentsFromConfig(generateId) {
+  const { buildLegalDocs } = require('./legal_docs_seed');
+  const config = getAppConfig();
+  const docs = buildLegalDocs({
+    legalEntityName: config?.legal_entity_name,
+    contactEmail: config?.contact_email,
+    legalJurisdiction: config?.legal_jurisdiction,
+  });
+  docs.forEach(doc => {
+    const id = generateId();
+    createLegalDocument(id, doc.slug, doc.title, doc.content, doc.requires_consent);
+    publishLegalDocument(id);
+  });
+}
+
 function deleteLegalDocumentDraft(id) {
   db.run(`DELETE FROM legal_documents WHERE id=? AND published=0`, [id]);
   save();
@@ -1885,6 +1983,7 @@ function getUserConsentHistory(userId) {
 }
 
 module.exports = {
+  getAppConfig, updateAppConfig, isSetupComplete, regenerateLegalDocumentsFromConfig,
   getDb, save,
   // Facilitators
   createFacilitator, getFacilitatorByEmail, getFacilitatorById,

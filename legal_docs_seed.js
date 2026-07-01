@@ -444,4 +444,24 @@ United Kingdom
 
 ];
 
-module.exports = { LEGAL_DOCS };
+// ── Build for a specific deployment's app_config (Path A: one deployment ──
+// per facilitator/org) ── Deliberately does simple string substitution
+// rather than rewriting LEGAL_DOCS into template literals — the source
+// content above stays exactly as originally written (zero regression risk
+// for the existing deployment), and swapping the identity is a mechanical,
+// easy-to-verify operation rather than 30 hand-edited placeholders scattered
+// through real legal text.
+function buildLegalDocs(config) {
+  const replacements = [
+    ['Per Norrgren trading as Deeper Mindfulness', config.legalEntityName || 'Per Norrgren trading as Deeper Mindfulness'],
+    ['per@deepermindfulness.org', config.contactEmail || 'per@deepermindfulness.org'],
+    ['United Kingdom', config.legalJurisdiction || 'United Kingdom'],
+  ];
+  return LEGAL_DOCS.map(doc => {
+    let content = doc.content;
+    replacements.forEach(([from, to]) => { content = content.split(from).join(to); });
+    return { ...doc, content };
+  });
+}
+
+module.exports = { LEGAL_DOCS, buildLegalDocs };
