@@ -100,6 +100,11 @@
     .history-meta { font-size:11px; color:rgba(255,255,255,0.3); margin-top:3px; }
     .no-history { font-size:13px; color:rgba(255,255,255,0.35); padding:20px; text-align:center; }
     .no-sessions { text-align:center; padding:32px 20px; color:rgba(255,255,255,0.3); font-size:14px; font-style:italic; }
+    .upgrade-prompt { text-align:center; padding:40px 24px; display:flex; flex-direction:column; align-items:center; gap:10px; }
+    .upgrade-prompt-title { font-size:15px; color:rgba(255,255,255,0.7); }
+    .upgrade-prompt-text { font-size:13px; color:rgba(255,255,255,0.35); line-height:1.6; max-width:280px; }
+    .upgrade-prompt-btn { margin-top:6px; padding:10px 22px; border-radius:9px; border:1px solid rgba(180,230,200,0.35); background:rgba(180,230,200,0.1); color:rgba(180,230,200,0.85); font-size:12px; letter-spacing:0.08em; text-transform:uppercase; text-decoration:none; font-family:'Georgia',serif; transition:background 0.2s; }
+    .upgrade-prompt-btn:hover { background:rgba(180,230,200,0.18); }
 
     /* Content tab */
     .content-view { display:none; flex-direction:column; overflow:hidden; }
@@ -1114,8 +1119,30 @@
     }
   }
 
+  // ── Tier gating (Per Bot 5, item 5) — Sessions/History are Member features. ──
+  // Cached after first fetch so repeated tab switches don't re-hit /api/account.
+  let userTier = null;
+  async function getUserTier() {
+    if (userTier !== null) return userTier;
+    try {
+      const res  = await fetch('/api/account');
+      const data = await res.json();
+      userTier = data.member_tier || 0;
+    } catch(e) { userTier = 0; }
+    return userTier;
+  }
+  function renderUpgradePrompt(elId, featureLabel) {
+    document.getElementById(elId).innerHTML = `
+      <div class="upgrade-prompt">
+        <div class="upgrade-prompt-title">${featureLabel} is a Member feature</div>
+        <div class="upgrade-prompt-text">Upgrade to unlock ${featureLabel.toLowerCase()} and everything else Member access includes.</div>
+        <a class="upgrade-prompt-btn" href="/membership">See membership options</a>
+      </div>`;
+  }
+
   // ── Sessions ──
   async function loadSessions() {
+    if ((await getUserTier()) < 1) { renderUpgradePrompt('sessionsList', 'Sessions'); return; }
     const res  = await fetch('/api/my/profile');
     const data = await res.json();
     renderSessions(data.sessions || []);
@@ -1132,6 +1159,7 @@
   }
 
   async function loadHistory() {
+    if ((await getUserTier()) < 1) { renderUpgradePrompt('historyList', 'History'); return; }
     const res  = await fetch('/api/client/history');
     const list = await res.json();
     renderHistory(Array.isArray(list) ? list : []);

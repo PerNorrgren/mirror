@@ -22,6 +22,7 @@ const STRIPE_PLANS = {
 const db         = require('./db');
 const auth       = require('./auth');
 const prompts    = require('./prompts');
+const { startCronJobs } = require('./cron');
 const media      = require('./media');
 
 // ── Config ──
@@ -134,7 +135,74 @@ function emailWelcomeClient(name, email, tempPassword) {
   );
 }
 
-// ── Page routes ──
+// ── Trial email sequence (Per Bot 5, item 4) ──
+// Day 3: what you've unlocked. Day 10: 4 days left. Day 14: trial ended.
+function emailTrialDay3(user) {
+  return sendEmail(user.email, 'Here\'s what you\'ve unlocked at Deeper Mindfulness',
+    `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
+      <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">Deeper Mindfulness</div>
+      <h1 style="font-size:22px;font-weight:normal;color:#1a1a1a;margin-bottom:24px">Hello ${user.name},</h1>
+      <p style="font-size:15px;line-height:1.7;color:#444;margin-bottom:20px">You're a few days into your trial. A quick look at what's already available to you:</p>
+      <ul style="font-size:15px;line-height:1.9;color:#444;margin:0 0 24px;padding-left:20px">
+        <li>The full content library — every guided practice, not just the free selection</li>
+        <li>A daily message, if you've opted in — a short prompt to pause and notice</li>
+        <li>Your own practice space, with history of what you've listened to</li>
+      </ul>
+      <p style="font-size:14px;line-height:1.7;color:#666;margin-bottom:24px">No pressure to do anything with this today. Just wanted you to know it's there.</p>
+      <p style="font-size:14px;line-height:1.7"><a href="${APP_URL}/client/" style="color:#2d6a4f">Visit your practice space →</a></p>
+      <hr style="border:none;border-top:1px solid #e0e0e0;margin:28px 0"/>
+      <p style="font-size:12px;color:#aaa">Deeper Mindfulness · Per Norrgren · <a href="${APP_URL}/account" style="color:#aaa">Manage email preferences</a></p>
+    </div>`
+  );
+}
+
+function emailTrialDay10(user) {
+  return sendEmail(user.email, 'Four days left on your trial',
+    `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
+      <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">Deeper Mindfulness</div>
+      <h1 style="font-size:22px;font-weight:normal;color:#1a1a1a;margin-bottom:24px">Hello ${user.name},</h1>
+      <p style="font-size:15px;line-height:1.7;color:#444;margin-bottom:20px">Your trial ends in four days. After that, your account moves to the free Explorer tier — you'll keep your history, but full access ends.</p>
+      <p style="font-size:15px;line-height:1.7;color:#444;margin-bottom:24px">If it's been useful, you can continue anytime, no rush and no pressure either way.</p>
+      <div style="background:#f5f5f0;border-radius:10px;padding:20px;margin-bottom:24px">
+        <div style="font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:#888;margin-bottom:6px">Membership</div>
+        <div style="font-size:15px;color:#1a1a1a">£5.99/month · £59/year · £100 one-off, lifetime</div>
+      </div>
+      <p style="font-size:14px;line-height:1.7"><a href="${APP_URL}/membership" style="color:#2d6a4f">See membership options →</a></p>
+      <hr style="border:none;border-top:1px solid #e0e0e0;margin:28px 0"/>
+      <p style="font-size:12px;color:#aaa">Deeper Mindfulness · Per Norrgren · <a href="${APP_URL}/account" style="color:#aaa">Manage email preferences</a></p>
+    </div>`
+  );
+}
+
+function emailTrialDay14(user) {
+  return sendEmail(user.email, 'Your trial has ended',
+    `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
+      <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">Deeper Mindfulness</div>
+      <h1 style="font-size:22px;font-weight:normal;color:#1a1a1a;margin-bottom:24px">Hello ${user.name},</h1>
+      <p style="font-size:15px;line-height:1.7;color:#444;margin-bottom:20px">Your 14-day trial has come to an end. Your account is now on the free Explorer tier — your history and saved content are still there, and the free content is still available.</p>
+      <p style="font-size:15px;line-height:1.7;color:#444;margin-bottom:24px">If you'd like full access back, you're welcome anytime.</p>
+      <p style="font-size:14px;line-height:1.7"><a href="${APP_URL}/membership" style="color:#2d6a4f">See membership options →</a></p>
+      <hr style="border:none;border-top:1px solid #e0e0e0;margin:28px 0"/>
+      <p style="font-size:12px;color:#aaa">Deeper Mindfulness · Per Norrgren · <a href="${APP_URL}/account" style="color:#aaa">Manage email preferences</a></p>
+    </div>`
+  );
+}
+
+// ── Inactivity reminder (Per Bot 5, item 8) ──
+function emailInactivityReminder(user) {
+  return sendEmail(user.email, 'Whenever you\'re ready',
+    `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
+      <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">Deeper Mindfulness</div>
+      <h1 style="font-size:22px;font-weight:normal;color:#1a1a1a;margin-bottom:24px">Hello ${user.name},</h1>
+      <p style="font-size:15px;line-height:1.7;color:#444;margin-bottom:24px">It's been a little while. No pressure at all — just wanted to leave the door open, in case a few minutes today would help.</p>
+      <p style="font-size:14px;line-height:1.7"><a href="${APP_URL}/client/" style="color:#2d6a4f">Visit your practice space →</a></p>
+      <hr style="border:none;border-top:1px solid #e0e0e0;margin:28px 0"/>
+      <p style="font-size:12px;color:#aaa">Deeper Mindfulness · Per Norrgren · <a href="${APP_URL}/account" style="color:#aaa">Manage email preferences</a></p>
+    </div>`
+  );
+}
+
+
 app.get('/login',    (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
 app.get('/register', (req, res) => res.sendFile(path.join(__dirname, 'public', 'register.html')));
 app.get('/register/',(req, res) => res.sendFile(path.join(__dirname, 'public', 'register.html')));
@@ -523,6 +591,25 @@ app.post('/api/guest/lead', async (req, res) => {
   }
 });
 
+// ── /api/guest/content — no auth. Was referenced by public/guest/index.html ──
+// but never actually built, which is why guest browsing has been broken (Per
+// Bot 5, item 10). A guest has no user record and no role, so we use the same
+// flags an unregistered Explorer would have — level 0 ("registered" tier) —
+// via userFlagsFromRecord(null, null). getAllLibraryFilesWithAccess tags every
+// file with `accessible` rather than filtering, so locked (higher-tier) items
+// still show up with the lock icon the guest page already renders for them —
+// that's the existing frontend behaviour, this just supplies the data it expects.
+app.get('/api/guest/content', (req, res) => {
+  try {
+    const userFlags = db.userFlagsFromRecord(null, null);
+    const files = db.getAllLibraryFilesWithAccess(userFlags);
+    res.json(files);
+  } catch(e) {
+    console.error('guest content error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── /api/admin/guest-leads — view leads (admin only) ──
 app.get('/api/admin/guest-leads', auth.requireAuthApi(['admin']), (req, res) => {
   res.json(db.getGuestLeads());
@@ -756,6 +843,21 @@ app.patch('/api/admin/users/:id/upgrade', auth.requireAuthApi(['admin']), (req, 
   const memberTier = tier != null ? parseInt(tier) : (level === 'member' ? 1 : parseInt(level) || 1);
   db.setMemberTier(req.params.id, memberTier, null, null, null, null);
   res.json({ ok: true });
+});
+
+// ── /api/admin/users/:id/expiry — manual membership expiry override ──
+// For honouring existing WordPress subscribers: set their expiry date by hand
+// to match their current subscription, without altering tier or trial state.
+// expiresAt: 'YYYY-MM-DD' or null to clear (treat as non-expiring).
+app.patch('/api/admin/users/:id/expiry', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    const { expiresAt } = req.body;
+    if (expiresAt && !/^\d{4}-\d{2}-\d{2}$/.test(expiresAt)) {
+      return res.status(400).json({ error: 'expiresAt must be YYYY-MM-DD or null.' });
+    }
+    db.setMemberExpiry(req.params.id, expiresAt || null);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── /api/speak — ElevenLabs, piped directly (Mare Bot architecture) ──
@@ -1731,55 +1833,61 @@ app.delete('/api/admin/motd/:id', auth.requireAuthApi(['admin']), (req, res) => 
   catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── MOTD send — triggered by daily cron (node-cron, not yet wired) ──
-// This endpoint does the actual send. Call it from a scheduled job.
-// Safe to call manually from Admin for testing.
+// ── MOTD send — the actual send logic, callable directly (cron) or via the ──
+// admin endpoint below (manual trigger / testing). Kept as one function so
+// there's exactly one place this logic lives.
+async function sendDailyMotd() {
+  const motd = db.getNextMotdToSend();
+  if (!motd) return { ok: true, sent: 0, note: 'No approved messages in queue.' };
+
+  const recipients = db.getMotdRecipients();
+  if (!recipients.length) {
+    db.markMotdSent(motd.id);
+    return { ok: true, sent: 0, note: 'No recipients opted in.' };
+  }
+
+  // Send to each recipient individually so we can personalise the greeting
+  let sent = 0;
+  for (const user of recipients) {
+    await sendEmail(user.email,
+      'From Deeper Mindfulness — a moment for today',
+      `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
+        <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:24px">Deeper Mindfulness</div>
+        <p style="font-size:17px;line-height:1.8;color:#1a1a1a;margin-bottom:32px">${motd.body.replace(/\n/g, '<br/>')}</p>
+        <hr style="border:none;border-top:1px solid #e0e0e0;margin:28px 0"/>
+        <p style="font-size:12px;color:#aaa">
+          You're receiving this because you're a member of Deeper Mindfulness.
+          <a href="${APP_URL}/client/" style="color:#2d6a4f">Visit your practice space</a> ·
+          <a href="${APP_URL}/account" style="color:#888">Manage preferences</a>
+        </p>
+      </div>`
+    );
+    sent++;
+  }
+
+  db.markMotdSent(motd.id);
+
+  // Check remaining and alert Per if low
+  const remaining = db.countApprovedMotd();
+  if (remaining <= 5) {
+    await sendEmail(process.env.ADMIN_EMAIL || 'per@deepermindfulness.org',
+      `⚠️ MOTD queue — ${remaining} message${remaining === 1 ? '' : 's'} remaining`,
+      `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px">
+        <p>Today's message was sent to ${sent} recipient${sent === 1 ? '' : 's'}.</p>
+        <p>Only <strong>${remaining}</strong> approved message${remaining === 1 ? '' : 's'} left. Please add more.</p>
+        <p><a href="${APP_URL}/admin/">${APP_URL}/admin/</a></p>
+      </div>`
+    );
+  }
+
+  return { ok: true, sent, remaining, lowStock: remaining <= 5 };
+}
+
+// Manual/admin trigger — same logic as the cron job, for testing or one-off sends.
 app.post('/api/admin/motd/send-daily', auth.requireAuthApi(['admin']), async (req, res) => {
   try {
-    const motd = db.getNextMotdToSend();
-    if (!motd) return res.json({ ok: true, sent: 0, note: 'No approved messages in queue.' });
-
-    const recipients = db.getMotdRecipients();
-    if (!recipients.length) {
-      db.markMotdSent(motd.id);
-      return res.json({ ok: true, sent: 0, note: 'No recipients opted in.' });
-    }
-
-    // Send to each recipient individually so we can personalise the greeting
-    let sent = 0;
-    for (const user of recipients) {
-      await sendEmail(user.email,
-        'From Deeper Mindfulness — a moment for today',
-        `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
-          <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:24px">Deeper Mindfulness</div>
-          <p style="font-size:17px;line-height:1.8;color:#1a1a1a;margin-bottom:32px">${motd.body.replace(/\n/g, '<br/>')}</p>
-          <hr style="border:none;border-top:1px solid #e0e0e0;margin:28px 0"/>
-          <p style="font-size:12px;color:#aaa">
-            You're receiving this because you're a member of Deeper Mindfulness.
-            <a href="${APP_URL}/client/" style="color:#2d6a4f">Visit your practice space</a> ·
-            <a href="${APP_URL}/account" style="color:#888">Manage preferences</a>
-          </p>
-        </div>`
-      );
-      sent++;
-    }
-
-    db.markMotdSent(motd.id);
-
-    // Check remaining and alert Per if low
-    const remaining = db.countApprovedMotd();
-    if (remaining <= 5) {
-      await sendEmail(process.env.ADMIN_EMAIL || 'per@deepermindfulness.org',
-        `⚠️ MOTD queue — ${remaining} message${remaining === 1 ? '' : 's'} remaining`,
-        `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px">
-          <p>Today's message was sent to ${sent} recipient${sent === 1 ? '' : 's'}.</p>
-          <p>Only <strong>${remaining}</strong> approved message${remaining === 1 ? '' : 's'} left. Please add more.</p>
-          <p><a href="${APP_URL}/admin/">${APP_URL}/admin/</a></p>
-        </div>`
-      );
-    }
-
-    res.json({ ok: true, sent, remaining, lowStock: remaining <= 5 });
+    const result = await sendDailyMotd();
+    res.json(result);
   } catch(e) {
     console.error('motd send error:', e.message);
     res.status(500).json({ error: e.message });
@@ -1811,5 +1919,6 @@ app.use((err, req, res, next) => {
     db.createFacilitator(uuidv4(), 'Per Norrgren', adminEmail, hash, 'admin');
     console.log(`Admin created: ${adminEmail}`);
   }
+  startCronJobs({ db, sendDailyMotd, emailTrialDay3, emailTrialDay10, emailTrialDay14, emailInactivityReminder });
   server.listen(PORT, () => console.log(`Per Bot running on port ${PORT}`));
 })();

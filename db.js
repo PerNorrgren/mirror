@@ -322,6 +322,11 @@ async function getDb() {
     // sessions
     "ALTER TABLE sessions ADD COLUMN facilitator_id TEXT",
     "ALTER TABLE sessions ADD COLUMN client_summary TEXT DEFAULT ''",
+    // trial email sequence + inactivity reminder dedupe (Per Bot 5, items 4 & 8)
+    "ALTER TABLE users ADD COLUMN trial_email_day3_sent INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN trial_email_day10_sent INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN trial_email_day14_sent INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN last_reminder_sent_at TEXT",
     // ── clients → users rename migration ──
     // SQLite cannot rename tables in older versions, so we use a copy-and-rename
     // approach via the migration block below. Handled separately after this list.
@@ -773,6 +778,24 @@ function setMemberTier(userId, tier, expiresAt, trialEndsAt, stripeCustomerId, s
   save();
 }
 
+// ── Manual membership expiry override (Per Bot 5, item 6) ──
+// For honouring existing WordPress subscribers migrated by hand: sets
+// member_expires_at directly without touching tier, trial_ends_at, or Stripe
+// fields — deliberately narrower than setMemberTier, which would otherwise
+// clear trial_ends_at as a side effect even when that's not the intent here.
+// If member_since isn't set yet (a WordPress import with no trial history),
+// this sets it to now so "Member since" has a sensible value to display.
+function setMemberExpiry(userId, expiresAt) {
+  getDbSync().run(
+    `UPDATE users SET
+      member_expires_at=?,
+      member_since=COALESCE(member_since, datetime('now'))
+    WHERE id=?`,
+    [expiresAt || null, userId]
+  );
+  save();
+}
+
 // Legacy alias used by existing Admin routes — maps to Member1
 function upgradeToMember(userId, level = 'member') {
   const tier = level === 'member' ? 1 : (parseInt(level) || 1);
@@ -1079,13 +1102,16 @@ function getNextMotdToSend() {
 function getMotdRecipients() {
   return queryAll(`SELECT id,name,email FROM users WHERE pref_email_motd=1 AND email IS NOT NULL AND archived=0`);
 }
-// Get users who haven't been active in the last N days (for reminder emails)
+// Get users who haven't been active in the last N days (for reminder emails).
+// Deduped: skips anyone reminded in the last 7 days so a persistently inactive
+// user gets nudged weekly, not every single day the cron job runs.
 function getInactiveUsers(days = 4) {
   return queryAll(
     `SELECT u.id, u.name, u.email FROM users u
      WHERE u.pref_email_reminders=1
        AND u.email IS NOT NULL
        AND u.archived=0
+       AND (u.last_reminder_sent_at IS NULL OR u.last_reminder_sent_at <= datetime('now', '-7 days'))
        AND NOT EXISTS (
          SELECT 1 FROM content_history ch
          WHERE ch.user_id=u.id
@@ -1093,6 +1119,40 @@ function getInactiveUsers(days = 4) {
        )`,
     []
   );
+}
+function markReminderSent(userId) {
+  getDbSync().run(`UPDATE users SET last_reminder_sent_at=datetime('now') WHERE id=?`, [userId]);
+  save();
+}
+
+// ── Trial email sequence (Per Bot 5, item 4) ──
+// Three touchpoints during the 14-day trial: day 3, day 10, day 14. Each has
+// its own "already sent" flag so the cron job can run daily without risking
+// a duplicate send — daysSinceStart is measured from member_since, which is
+// set at the moment the trial starts (see registerUser). Only fires for
+// people still genuinely on trial: tier 1, a trial_ends_at set, and no
+// Stripe subscription yet (once they've subscribed, the trial nudges no
+// longer apply to them).
+const TRIAL_EMAIL_FLAGS = ['trial_email_day3_sent', 'trial_email_day10_sent', 'trial_email_day14_sent'];
+
+function getTrialEmailCandidates(daysSinceStart, flagColumn) {
+  if (!TRIAL_EMAIL_FLAGS.includes(flagColumn)) throw new Error('Invalid trial email flag column: ' + flagColumn);
+  return queryAll(
+    `SELECT id, name, email, trial_ends_at FROM users
+     WHERE member_tier=1
+       AND trial_ends_at IS NOT NULL
+       AND stripe_subscription_id IS NULL
+       AND ${flagColumn}=0
+       AND email IS NOT NULL
+       AND archived=0
+       AND member_since IS NOT NULL
+       AND datetime(member_since) <= datetime('now', '-${daysSinceStart} days')`
+  );
+}
+function markTrialEmailSent(userId, flagColumn) {
+  if (!TRIAL_EMAIL_FLAGS.includes(flagColumn)) throw new Error('Invalid trial email flag column: ' + flagColumn);
+  getDbSync().run(`UPDATE users SET ${flagColumn}=1 WHERE id=?`, [userId]);
+  save();
 }
 
 function getUserByStripeCustomer(stripeCustomerId) {
@@ -1260,7 +1320,7 @@ module.exports = {
   updateArc, archiveClient, updateClientPassword, updateClientEmail, updateClientProgramme,
   updateClientDetails, deleteClient,
   // Membership
-  setMemberTier, upgradeToMember, downgradeToExplorer, markAsClient, markAsSystemClient,
+  setMemberTier, setMemberExpiry, upgradeToMember, downgradeToExplorer, markAsClient, markAsSystemClient,
   // Preferences
   updateUserPreferences, userFlagsFromRecord,
   // Sessions
@@ -1294,6 +1354,9 @@ module.exports = {
   markMotdSent, countApprovedMotd, getNextMotdToSend, getMotdRecipients,
   // Reminders
   getInactiveUsers,
+  markReminderSent,
+  getTrialEmailCandidates,
+  markTrialEmailSent,
   // Stripe lookups
   getUserByStripeCustomer, getUserByStripeSubscription,
   // Legal documents

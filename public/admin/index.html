@@ -236,6 +236,25 @@
     </div>
   </div>
 
+  <!-- Set membership expiry — for honouring existing WordPress subscribers by hand -->
+  <div class="modal-bg" id="expiryModal" style="display:none" onclick="if(event.target===this)closeModal('expiryModal')">
+    <div class="modal">
+      <h3>Set membership expiry</h3>
+      <input type="hidden" id="expiryUserId"/>
+      <div style="margin:16px 0;display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:13px;color:rgba(255,255,255,0.5)" id="expiryUserName"></div>
+        <p class="modal-note" style="margin:0">Sets the renewal date shown to this member — for matching an existing subscription migrated from WordPress. Does not change their tier.</p>
+        <input type="date" id="expiryDate" style="background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:10px 12px;color:rgba(255,255,255,0.8);font-family:Georgia,serif;font-size:14px;outline:none"/>
+      </div>
+      <div class="modal-err" id="expiryErr"></div>
+      <div class="modal-btns">
+        <button class="modal-cancel" onclick="clearExpiry()" style="color:rgba(255,120,100,0.7)">Clear expiry</button>
+        <button class="modal-cancel" onclick="closeModal('expiryModal')">Cancel</button>
+        <button class="modal-ok" onclick="saveExpiry()">Save</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Universal Confirm Modal -->
   <div class="modal-overlay" id="confirmModal">
     <div class="modal">
@@ -965,6 +984,7 @@
           <div class="col-level">
             <span class="status-badge ${(u.member_tier||0)>=1?'status-active':'status-archived'}">${(u.member_tier||0)>=1?'Member':'Explorer'}</span>
             ${u.is_client?'<span class="status-badge status-active" style="margin-left:4px">Client</span>':''}
+            ${(u.member_tier||0)>=1?`<button class="btn sm" style="margin-left:6px" onclick="openExpiryModal('${u.id}','${(u.name||'').replace(/'/g,"\\'")}','${u.member_expires_at||''}')">${u.member_expires_at?'Expires '+u.member_expires_at:'Set expiry'}</button>`:''}
           </div>
           <div class="col-fac">${u.facilitator_name||'—'}</div>
         </div>`).join('');
@@ -990,6 +1010,32 @@
       if (facId) await Promise.all(ids.map(id=>fetch(`/api/admin/users/${id}/assign-facilitator`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({facilitatorId:facId})})));
       closeModal('upgradeModal'); userSel.clear(); loadUsers(); loadMembers();
     } catch(e) { document.getElementById('upgradeErr').textContent='Error: '+e.message; }
+  }
+
+  function openExpiryModal(id, name, currentExpiry) {
+    document.getElementById('expiryUserId').value = id;
+    document.getElementById('expiryUserName').textContent = name;
+    document.getElementById('expiryDate').value = currentExpiry || '';
+    document.getElementById('expiryErr').textContent = '';
+    openModal('expiryModal');
+  }
+  async function saveExpiry() {
+    const id = document.getElementById('expiryUserId').value;
+    const date = document.getElementById('expiryDate').value;
+    if (!date) { document.getElementById('expiryErr').textContent = 'Choose a date, or use Clear expiry instead.'; return; }
+    try {
+      const res = await fetch(`/api/admin/users/${id}/expiry`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ expiresAt: date }) });
+      const data = await res.json();
+      if (data.error) { document.getElementById('expiryErr').textContent = data.error; return; }
+      closeModal('expiryModal'); loadUsers(); loadMembers();
+    } catch(e) { document.getElementById('expiryErr').textContent = 'Error: '+e.message; }
+  }
+  async function clearExpiry() {
+    const id = document.getElementById('expiryUserId').value;
+    try {
+      await fetch(`/api/admin/users/${id}/expiry`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ expiresAt: null }) });
+      closeModal('expiryModal'); loadUsers(); loadMembers();
+    } catch(e) { document.getElementById('expiryErr').textContent = 'Error: '+e.message; }
   }
   async function deleteSelectedUsers() {
     const ids=[...userSel.sel]; if (!ids.length) return;
