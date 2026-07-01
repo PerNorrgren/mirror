@@ -1642,6 +1642,47 @@ app.post('/api/admin/motd', auth.requireAuthApi(['admin']), (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── MOTD — AI-generated batch ──
+// Calls Claude with the house voice + full signal-range prompt (prompts.js),
+// asks for `count` new messages, parses the JSON array response, and inserts
+// every one as a fresh draft — same as writing them by hand. Nothing is
+// approved or scheduled automatically; they show up in the Drafts list for
+// the normal edit/approve workflow.
+app.post('/api/admin/motd/generate', auth.requireAuthApi(['admin']), async (req, res) => {
+  try {
+    let count = parseInt(req.body?.count, 10);
+    if (!Number.isFinite(count) || count < 1) count = 12;
+    count = Math.min(count, 30); // guardrail — one click shouldn't be able to flood the queue
+
+    const userMessage = `Write ${count} new Message of the Day drafts. Cover as wide a spread of the signal range as you can across these ${count} messages — don't repeat the same signal more than necessary given the count. Respond with only the JSON array, nothing else.`;
+
+    const raw = await callClaude(prompts.MOTD_GENERATION_PROMPT, [{ role: 'user', content: userMessage }], 4000);
+
+    let generated;
+    try {
+      generated = JSON.parse(raw);
+    } catch {
+      // Claude occasionally wraps the array in a fence despite instructions — strip and retry once.
+      const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+      generated = JSON.parse(cleaned);
+    }
+    if (!Array.isArray(generated) || !generated.length) throw new Error('Model did not return a usable list of messages.');
+
+    const ids = generated
+      .filter(msg => typeof msg === 'string' && msg.trim())
+      .map(msg => {
+        const id = uuidv4();
+        db.addMotd(id, msg.trim(), null);
+        return id;
+      });
+
+    res.json({ ok: true, count: ids.length });
+  } catch(e) {
+    console.error('motd generate error:', e);
+    res.status(500).json({ error: 'Could not generate messages. Please try again.' });
+  }
+});
+
 app.patch('/api/admin/motd/:id', auth.requireAuthApi(['admin']), (req, res) => {
   try {
     const { body, scheduledDate, action } = req.body;

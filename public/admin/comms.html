@@ -158,6 +158,7 @@
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <button class="btn primary" onclick="openMotdModal()">+ Write message</button>
+          <button class="btn" onclick="generateMotdBatch()" id="generateMotdBtn">✨ Generate batch</button>
           <button class="btn warn sm" onclick="sendTodayMotd()" id="sendMotdBtn">Send today's message</button>
         </div>
       </div>
@@ -443,6 +444,28 @@
     } else {
       alert(data.error || 'Something went wrong.');
     }
+  }
+
+  async function generateMotdBatch() {
+    if (!confirm('Generate a new batch of message-of-the-day drafts? They\'ll be added to Drafts for you to review, edit, and approve — nothing sends automatically.')) return;
+    const btn = document.getElementById('generateMotdBtn');
+    btn.disabled = true; btn.textContent = 'Generating…';
+    try {
+      const res  = await fetch('/api/admin/motd/generate', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ count: 12 })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        loadMotd();
+        alert(`Added ${data.count} new draft${data.count===1?'':'s'} to the queue. Review them under Drafts.`);
+      } else {
+        alert(data.error || 'Could not generate messages. Please try again.');
+      }
+    } catch(e) {
+      alert('Could not generate messages. Please try again.');
+    }
+    btn.disabled = false; btn.textContent = '✨ Generate batch';
   }
 
   // ════════════════════════════════════
