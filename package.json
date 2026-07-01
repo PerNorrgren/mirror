@@ -15,6 +15,7 @@
     "jsonwebtoken": "^9.0.2",
     "cookie-parser": "^1.4.6",
     "@aws-sdk/client-s3": "^3.600.0",
-    "@aws-sdk/s3-request-presigner": "^3.600.0"
+    "@aws-sdk/s3-request-presigner": "^3.600.0",
+    "stripe": "^14.0.0"
   }
 }

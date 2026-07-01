@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <title>Membership — Deeper Mindfulness</title>
+  <style>
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    html, body { width:100%; min-height:100%; font-family:'Georgia',serif; background:#0a0f0d; display:flex; align-items:flex-start; justify-content:center; padding:20px 16px 48px; }
+
+    .slideshow { position:fixed; inset:0; z-index:0; }
+    .slide { position:absolute; inset:0; background-size:cover; background-position:center; opacity:0; transition:opacity 3s ease-in-out; }
+    .slide.active { opacity:1; }
+    .veil { position:fixed; inset:0; z-index:1; background:rgba(0,0,0,0.55); }
+
+    .panel { position:relative; z-index:2; width:100%; max-width:480px; display:flex; flex-direction:column; gap:16px; padding-top:12px; }
+
+    /* Back */
+    .back-link { display:inline-flex; align-items:center; gap:6px; color:rgba(255,255,255,0.3); font-size:12px; letter-spacing:0.1em; text-transform:uppercase; text-decoration:none; transition:color 0.2s; }
+    .back-link:hover { color:rgba(180,230,200,0.7); }
+    .back-link svg { width:14px; height:14px; }
+
+    /* Header */
+    .page-wordmark { font-size:10px; letter-spacing:0.25em; text-transform:uppercase; color:rgba(255,255,255,0.3); margin-bottom:4px; }
+    .page-title { font-size:26px; color:rgba(255,255,255,0.85); font-weight:normal; margin-bottom:6px; }
+    .page-desc { font-size:14px; color:rgba(255,255,255,0.38); line-height:1.7; }
+
+    /* Current status */
+    .status-bar { background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:13px 16px; font-size:13px; color:rgba(255,255,255,0.45); display:flex; align-items:center; gap:10px; }
+    .status-dot { width:7px; height:7px; border-radius:50%; background:rgba(180,230,200,0.6); flex-shrink:0; }
+    .status-member { background:rgba(180,230,200,0.07); border-color:rgba(180,230,200,0.2); color:rgba(180,230,200,0.75); }
+
+    /* Billing toggle */
+    .billing-toggle { display:flex; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:3px; gap:3px; }
+    .billing-opt { flex:1; padding:9px; text-align:center; font-size:12px; letter-spacing:0.08em; text-transform:uppercase; color:rgba(255,255,255,0.35); cursor:pointer; border-radius:7px; border:none; background:none; font-family:'Georgia',serif; transition:all 0.2s; position:relative; }
+    .billing-opt.active { background:rgba(180,230,200,0.12); color:rgba(180,230,200,0.85); border:1px solid rgba(180,230,200,0.25); }
+    .save-badge { position:absolute; top:-8px; right:4px; background:rgba(255,180,60,0.85); color:#1a0f00; font-size:9px; padding:2px 6px; border-radius:8px; letter-spacing:0.05em; font-weight:bold; }
+
+    /* Plan card */
+    .plan-card {
+      background:rgba(255,255,255,0.07);
+      backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
+      border:1px solid rgba(255,255,255,0.11);
+      border-radius:18px; overflow:hidden;
+      transition:border-color 0.2s;
+    }
+    .plan-card.featured { border-color:rgba(180,230,200,0.3); }
+
+    .plan-header { padding:22px 22px 16px; }
+    .plan-name { font-size:11px; letter-spacing:0.2em; text-transform:uppercase; color:rgba(255,255,255,0.35); margin-bottom:10px; }
+    .plan-price-row { display:flex; align-items:baseline; gap:6px; }
+    .plan-price { font-size:36px; color:rgba(255,255,255,0.88); font-weight:normal; }
+    .plan-period { font-size:13px; color:rgba(255,255,255,0.35); }
+    .plan-saving { font-size:12px; color:rgba(255,200,80,0.75); margin-top:5px; }
+
+    .plan-divider { height:1px; background:rgba(255,255,255,0.07); margin:0 22px; }
+
+    .plan-features { padding:18px 22px 20px; display:flex; flex-direction:column; gap:10px; }
+    .feature-row { display:flex; align-items:flex-start; gap:10px; }
+    .feature-tick { color:rgba(180,230,200,0.7); font-size:14px; flex-shrink:0; margin-top:1px; }
+    .feature-text { font-size:13px; color:rgba(255,255,255,0.6); line-height:1.5; }
+
+    /* CTA button */
+    .plan-cta { padding:0 22px 22px; }
+    .cta-btn { width:100%; padding:14px; border-radius:10px; border:1px solid rgba(180,230,200,0.35); background:rgba(180,230,200,0.1); color:rgba(180,230,200,0.88); font-size:13px; letter-spacing:0.12em; text-transform:uppercase; cursor:pointer; transition:all 0.2s; font-family:'Georgia',serif; }
+    .cta-btn:hover { background:rgba(180,230,200,0.2); border-color:rgba(180,230,200,0.5); }
+    .cta-btn:disabled { opacity:0.4; cursor:not-allowed; }
+    .cta-btn.already { background:none; border-color:rgba(255,255,255,0.1); color:rgba(255,255,255,0.3); cursor:default; }
+    .cta-btn.already:hover { background:none; border-color:rgba(255,255,255,0.1); }
+
+    /* Error */
+    .err-msg { font-size:13px; color:rgba(255,120,100,0.8); text-align:center; min-height:18px; }
+
+    /* Reassurance */
+    .reassurance { display:flex; flex-direction:column; gap:8px; padding:4px 0; }
+    .reassure-row { display:flex; align-items:center; gap:10px; font-size:12px; color:rgba(255,255,255,0.28); }
+    .reassure-icon { font-size:14px; opacity:0.6; }
+
+    /* Already a member */
+    .member-card { background:rgba(180,230,200,0.05); border:1px solid rgba(180,230,200,0.15); border-radius:14px; padding:20px; text-align:center; display:flex; flex-direction:column; gap:10px; }
+    .member-card-title { font-size:16px; color:rgba(180,230,200,0.8); }
+    .member-card-desc  { font-size:13px; color:rgba(255,255,255,0.38); line-height:1.6; }
+
+    /* Loading */
+    .loading { text-align:center; padding:40px; font-size:13px; color:rgba(255,255,255,0.25); }
+  </style>
+</head>
+<body>
+
+<div class="slideshow" id="slideshow"></div>
+<div class="veil"></div>
+
+<div class="panel">
+
+  <a class="back-link" id="backLink" href="/client/">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+    Back
+  </a>
+
+  <div>
+    <div class="page-wordmark">Deeper Mindfulness</div>
+    <div class="page-title">Membership</div>
+    <div class="page-desc">Full access to the practice library, daily messages from Per, and everything that helps the practices land and last.</div>
+  </div>
+
+  <div id="statusBar" class="status-bar" style="display:none"></div>
+
+  <div id="mainContent" class="loading">Loading…</div>
+
+</div>
+
+<script>
+  // ── Config ──
+  const PUBLISHABLE_KEY = 'pk_live_51PGhWKCxT0sk2KVUdAIzaa72frMnNuM8i4O6WuxcNmLCltzcV3StYdSX63lXEt4GG01ydwRtMn3sKw4wTA2DeCuD000ealyXy8';
+
+  const PLANS = {
+    monthly:  { priceId:'price_1ToG0XCxT0sk2KVUHercrrgp', amount:'£5.99',  period:'per month', label:'Monthly',  saving:null },
+    annual:   { priceId:'price_1ToG7kCxT0sk2KVUdSeLuNk4', amount:'£59.00', period:'per year',  label:'Annual',   saving:'Save £12.88 vs monthly' },
+    lifetime: { priceId:'price_1ToG7kCxT0sk2KVUMBQnPiZn', amount:'£100',   period:'one-off',   label:'Lifetime', saving:'Pay once, access forever' },
+  };
+
+  const FEATURES = [
+    'Full content library — audio, video, and written guides',
+    'Daily message from Per in your inbox',
+    'Practice reminders tailored to your rhythm',
+    'Access to new programmes as they are released',
+    'Your complete practice history',
+  ];
+
+  // ── Slideshow ──
+  const slides = [
+    'https://images.unsplash.com/photo-1505118380757-91f5f5632de0?w=1600&q=80',
+    'https://images.unsplash.com/photo-1433086966358-54859d0ed716?w=1600&q=80',
+    'https://images.unsplash.com/photo-1501854140801-50d01698950b?w=1600&q=80',
+    'https://images.unsplash.com/photo-1448375240586-882707db888b?w=1600&q=80',
+    'https://images.unsplash.com/photo-1470770841072-f978cf4d019e?w=1600&q=80',
+  ];
+  const ss = document.getElementById('slideshow');
+  slides.forEach((url, i) => {
+    const d = document.createElement('div');
+    d.className = 'slide' + (i === 0 ? ' active' : '');
+    d.style.backgroundImage = `url('${url}')`;
+    ss.appendChild(d);
+  });
+  let cur = 0;
+  const slideEls = ss.querySelectorAll('.slide');
+  setInterval(() => {
+    slideEls[cur].classList.remove('active');
+    cur = (cur + 1) % slideEls.length;
+    slideEls[cur].classList.add('active');
+  }, 9000);
+
+  // ── State ──
+  let selectedBilling = 'monthly';
+  let account = null;
+  let checkoutInFlight = false;
+
+  // ── Load account ──
+  async function init() {
+    try {
+      const res = await fetch('/api/account');
+      if (res.status === 401) {
+        // Not logged in — show pricing anyway, redirect to register on click
+        renderPricing(null);
+        return;
+      }
+      account = await res.json();
+      renderStatus(account);
+      renderPricing(account);
+    } catch(e) {
+      document.getElementById('mainContent').innerHTML =
+        '<div class="err-msg">Could not load page. Please refresh.</div>';
+    }
+  }
+
+  function renderStatus(a) {
+    if (!a) return;
+    const bar = document.getElementById('statusBar');
+    bar.style.display = 'flex';
+    if (a.member_tier >= 1) {
+      bar.className = 'status-bar status-member';
+      bar.innerHTML = `<span class="status-dot"></span>You are a Member — full access is active.`;
+      document.getElementById('backLink').href = '/account';
+      document.getElementById('backLink').querySelector('svg').nextSibling.textContent = ' My account';
+    } else {
+      bar.innerHTML = `<span class="status-dot" style="background:rgba(255,255,255,0.2)"></span>You are exploring as a free member. Upgrade to unlock everything.`;
+    }
+  }
+
+  function renderPricing(a) {
+    const isMember = a && a.member_tier >= 1;
+    const content  = document.getElementById('mainContent');
+    content.className = '';
+
+    if (isMember) {
+      content.innerHTML = `
+        <div class="member-card">
+          <div class="member-card-title">You're already a Member</div>
+          <div class="member-card-desc">Full access is active. Manage your membership details, billing, and preferences from your account page.</div>
+          <a href="/account" style="display:inline-block;margin:0 auto;padding:10px 24px;border-radius:8px;border:1px solid rgba(180,230,200,0.3);background:rgba(180,230,200,0.08);color:rgba(180,230,200,0.75);font-size:12px;letter-spacing:0.1em;text-transform:uppercase;text-decoration:none">Go to my account</a>
+        </div>
+        ${reassuranceHtml()}
+      `;
+      return;
+    }
+
+    content.innerHTML = `
+      <div class="billing-toggle" id="billingToggle">
+        <button class="billing-opt active" data-billing="monthly" onclick="setBilling('monthly')">Monthly</button>
+        <button class="billing-opt" data-billing="annual" onclick="setBilling('annual')">
+          Annual
+          <span class="save-badge">Save 18%</span>
+        </button>
+        <button class="billing-opt" data-billing="lifetime" onclick="setBilling('lifetime')">Lifetime</button>
+      </div>
+
+      <div class="plan-card featured" id="planCard">
+        <div class="plan-header">
+          <div class="plan-name">Deeper Mindfulness · Member</div>
+          <div class="plan-price-row">
+            <div class="plan-price" id="planPrice">£5.99</div>
+            <div class="plan-period" id="planPeriod">per month</div>
+          </div>
+          <div class="plan-saving" id="planSaving" style="display:none"></div>
+        </div>
+
+        <div class="plan-divider"></div>
+
+        <div class="plan-features">
+          ${FEATURES.map(f => `
+            <div class="feature-row">
+              <span class="feature-tick">✓</span>
+              <span class="feature-text">${f}</span>
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="plan-cta">
+          <div class="err-msg" id="errMsg" style="margin-bottom:10px"></div>
+          <button class="cta-btn" id="ctaBtn" onclick="startCheckout()">
+            ${a ? 'Become a member' : 'Join now'}
+          </button>
+          <div style="font-size:11px;color:rgba(255,255,255,0.2);text-align:center;margin-top:10px">
+            Secure payment via Stripe · Cancel anytime
+          </div>
+        </div>
+      </div>
+
+      ${reassuranceHtml()}
+    `;
+  }
+
+  function reassuranceHtml() {
+    return `
+      <div class="reassurance">
+        <div class="reassure-row"><span class="reassure-icon">🔒</span>Payment handled securely by Stripe — your card details never touch our server.</div>
+        <div class="reassure-row"><span class="reassure-icon">✉</span>Questions? Write to Per at <a href="mailto:per@deepermindfulness.org" style="color:rgba(180,230,200,0.4);text-decoration:none">per@deepermindfulness.org</a></div>
+      </div>
+    `;
+  }
+
+  function setBilling(type) {
+    selectedBilling = type;
+    document.querySelectorAll('.billing-opt').forEach(b => {
+      b.classList.toggle('active', b.dataset.billing === type);
+    });
+    const plan = PLANS[type];
+    const priceEl  = document.getElementById('planPrice');
+    const periodEl = document.getElementById('planPeriod');
+    const savingEl = document.getElementById('planSaving');
+    if (priceEl)  priceEl.textContent  = plan.amount;
+    if (periodEl) periodEl.textContent = plan.period;
+    if (savingEl) {
+      if (plan.saving) { savingEl.textContent = plan.saving; savingEl.style.display = 'block'; }
+      else              savingEl.style.display = 'none';
+    }
+  }
+
+  async function startCheckout() {
+    if (checkoutInFlight) return;
+
+    // Not logged in — send to register first
+    if (!account) {
+      window.location.href = '/register?next=/membership';
+      return;
+    }
+
+    checkoutInFlight = true;
+    const btn = document.getElementById('ctaBtn');
+    const err = document.getElementById('errMsg');
+    btn.disabled = true;
+    btn.textContent = 'Opening checkout…';
+    err.textContent = '';
+
+    try {
+      const plan = PLANS[selectedBilling];
+      const res  = await fetch('/api/membership/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priceId: plan.priceId, billing: selectedBilling })
+      });
+      const data = await res.json();
+
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        err.textContent = data.error || 'Could not start checkout. Please try again.';
+        btn.disabled = false;
+        btn.textContent = 'Become a member';
+        checkoutInFlight = false;
+      }
+    } catch(e) {
+      document.getElementById('errMsg').textContent = 'Something went wrong. Please try again.';
+      btn.disabled = false;
+      btn.textContent = 'Become a member';
+      checkoutInFlight = false;
+    }
+  }
+
+  init();
+</script>
+</body>
+</html>

@@ -8,6 +8,17 @@ const { v4: uuidv4 } = require('uuid');
 const fetch      = require('node-fetch');
 const cookieParser = require('cookie-parser');
 const crypto       = require('crypto');
+
+// ── Stripe ──
+const Stripe = require('stripe');
+const stripe = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY) : null;
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || null;
+
+const STRIPE_PLANS = {
+  monthly:  { priceId: 'price_1ToG0XCxT0sk2KVUHercrrgp', tier: 1 },
+  annual:   { priceId: 'price_1ToG7kCxT0sk2KVUdSeLuNk4', tier: 1 },
+  lifetime: { priceId: 'price_1ToG7kCxT0sk2KVUMBQnPiZn', tier: 1 },
+};
 const db         = require('./db');
 const auth       = require('./auth');
 const prompts    = require('./prompts');
@@ -1311,13 +1322,184 @@ app.patch('/api/admin/users/:id/downgrade', auth.requireAuthApi(['admin']), (req
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Stripe webhook — placeholder ──
-// Real Stripe integration is a separate sprint. This endpoint receives webhook events
-// from Stripe and updates member_tier accordingly. Wired up once Stripe keys are set.
-app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), (req, res) => {
-  // TODO: verify stripe-signature header against STRIPE_WEBHOOK_SECRET
-  // TODO: handle customer.subscription.created / updated / deleted, invoice.payment_failed
-  console.log('[stripe webhook] received (not yet processed)');
+// ── Membership page ──
+app.get('/membership',  (req, res) => res.sendFile(path.join(__dirname, 'public', 'membership.html')));
+app.get('/membership/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'membership.html')));
+
+// ── Stripe: create Checkout Session ──
+app.post('/api/membership/checkout', auth.requireAuthApi(['client']), async (req, res) => {
+  if (!stripe) return res.status(503).json({ error: 'Payment system not configured yet.' });
+  try {
+    const { priceId, billing } = req.body;
+    if (!priceId) return res.status(400).json({ error: 'priceId required.' });
+
+    const user = db.getUser(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+
+    // Reuse Stripe customer if we have one
+    let customerId = user.stripe_customer_id || null;
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: user.email,
+        name:  user.name,
+        metadata: { user_id: user.id }
+      });
+      customerId = customer.id;
+      db.setMemberTier(user.id, user.member_tier || 0, null, null, customerId, null);
+    }
+
+    const isLifetime = billing === 'lifetime';
+    const sessionParams = {
+      customer:             customerId,
+      payment_method_types: ['card'],
+      line_items: [{ price: priceId, quantity: 1 }],
+      mode:                 isLifetime ? 'payment' : 'subscription',
+      success_url:          `${APP_URL}/membership/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url:           `${APP_URL}/membership`,
+      metadata:             { user_id: user.id, billing, tier: '1' },
+      client_reference_id:  user.id,
+    };
+
+    const session = await stripe.checkout.sessions.create(sessionParams);
+    res.json({ url: session.url });
+  } catch(e) {
+    console.error('[stripe checkout]', e.message);
+    res.status(500).json({ error: 'Could not start checkout. Please try again.' });
+  }
+});
+
+// ── Stripe: success page (redirect after payment) ──
+app.get('/membership/success', auth.requireAuth(['client']), async (req, res) => {
+  // Webhook will have already fired and set the tier — just redirect to account
+  res.redirect('/account?welcome=member');
+});
+
+// ── Stripe: webhook ──
+// Must use raw body — express.json() must NOT have parsed this request
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  if (!stripe) return res.json({ received: true });
+
+  let event;
+  try {
+    if (STRIPE_WEBHOOK_SECRET) {
+      event = stripe.webhooks.constructEvent(req.body, req.headers['stripe-signature'], STRIPE_WEBHOOK_SECRET);
+    } else {
+      event = JSON.parse(req.body.toString());
+      console.warn('[stripe webhook] no STRIPE_WEBHOOK_SECRET set — skipping signature verification');
+    }
+  } catch(e) {
+    console.error('[stripe webhook] signature verification failed:', e.message);
+    return res.status(400).json({ error: 'Webhook signature verification failed.' });
+  }
+
+  try {
+    switch (event.type) {
+
+      case 'checkout.session.completed': {
+        const session = event.data.object;
+        const userId  = session.client_reference_id || session.metadata?.user_id;
+        const tier    = parseInt(session.metadata?.tier || '1');
+        const billing = session.metadata?.billing;
+        if (!userId) break;
+
+        let expiresAt = null;
+        if (billing === 'monthly') {
+          const d = new Date(); d.setMonth(d.getMonth() + 1);
+          expiresAt = d.toISOString();
+        } else if (billing === 'annual') {
+          const d = new Date(); d.setFullYear(d.getFullYear() + 1);
+          expiresAt = d.toISOString();
+        }
+        // lifetime: no expiry
+
+        const subId = session.subscription || null;
+        db.setMemberTier(userId, tier, expiresAt, null, session.customer, subId);
+
+        // Send welcome email
+        const user = db.getUser(userId);
+        if (user?.email) {
+          await sendEmail(user.email,
+            'Welcome to Deeper Mindfulness — you\'re a Member',
+            `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
+              <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:24px">Deeper Mindfulness</div>
+              <h2 style="font-weight:normal;font-size:22px;margin-bottom:16px">You're in, ${user.name}.</h2>
+              <p style="font-size:15px;line-height:1.8;margin-bottom:20px">Your membership is active. The full practice library is open, and your daily message from Per starts tomorrow morning.</p>
+              <a href="${APP_URL}/client/" style="display:inline-block;padding:12px 28px;border-radius:8px;background:#2d7873;color:#fff;text-decoration:none;font-size:13px;letter-spacing:0.08em">Go to your practice space</a>
+              <hr style="border:none;border-top:1px solid #e8e8e8;margin:32px 0"/>
+              <p style="font-size:12px;color:#aaa">Making the practices land and last for life. · <a href="${APP_URL}/account" style="color:#888">Manage my account</a></p>
+            </div>`
+          );
+        }
+        console.log(`[stripe] checkout.session.completed — user ${userId} → tier ${tier}`);
+        break;
+      }
+
+      case 'invoice.payment_succeeded': {
+        // Subscription renewal — extend expiry
+        const invoice = event.data.object;
+        const subId   = invoice.subscription;
+        if (!subId) break;
+        const user = db.queryAll ? null : null; // use raw query below
+        const users = db.getDb ? null : null;
+        // Find user by stripe_subscription_id
+        const found = db.queryAll
+          ? null
+          : null;
+        // Use direct DB query via exported function
+        const userRec = db.getUserByStripeSubscription ? db.getUserByStripeSubscription(subId) : null;
+        if (userRec) {
+          const d = new Date(); d.setMonth(d.getMonth() + 1);
+          db.setMemberTier(userRec.id, userRec.member_tier || 1, d.toISOString(), null, null, null);
+        }
+        break;
+      }
+
+      case 'customer.subscription.deleted': {
+        // Subscription cancelled — drop to Explorer
+        const sub    = event.data.object;
+        const custId = sub.customer;
+        // Find user by stripe_customer_id
+        const userRec = db.getUserByStripeCustomer ? db.getUserByStripeCustomer(custId) : null;
+        if (userRec) {
+          db.downgradeToExplorer(userRec.id);
+          const user = db.getUser(userRec.id);
+          if (user?.email) {
+            await sendEmail(user.email,
+              'Your Deeper Mindfulness membership has ended',
+              `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
+                <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:24px">Deeper Mindfulness</div>
+                <p style="font-size:15px;line-height:1.8;margin-bottom:20px">Your membership has ended. You can continue exploring as a free member, or <a href="${APP_URL}/membership" style="color:#2d7873">rejoin at any time</a>.</p>
+                <p style="font-size:12px;color:#aaa">Making the practices land and last for life.</p>
+              </div>`
+            );
+          }
+        }
+        break;
+      }
+
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object;
+        const custId  = invoice.customer;
+        const userRec = db.getUserByStripeCustomer ? db.getUserByStripeCustomer(custId) : null;
+        if (userRec?.email) {
+          await sendEmail(userRec.email,
+            'Payment issue with your Deeper Mindfulness membership',
+            `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
+              <p style="font-size:15px;line-height:1.8;margin-bottom:20px">We couldn't process your membership payment. Please update your payment details to keep your access.</p>
+              <a href="https://billing.stripe.com/p/login/test_00g" style="display:inline-block;padding:12px 28px;border-radius:8px;background:#2d7873;color:#fff;text-decoration:none;font-size:13px">Update payment details</a>
+            </div>`
+          );
+        }
+        break;
+      }
+
+      default:
+        console.log(`[stripe webhook] unhandled event: ${event.type}`);
+    }
+  } catch(e) {
+    console.error('[stripe webhook] handler error:', e.message);
+  }
+
   res.json({ received: true });
 });
 

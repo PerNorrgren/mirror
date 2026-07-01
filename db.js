@@ -1039,6 +1039,13 @@ function getInactiveUsers(days = 4) {
   );
 }
 
+function getUserByStripeCustomer(stripeCustomerId) {
+  return queryOne('SELECT * FROM users WHERE stripe_customer_id=?', [stripeCustomerId]);
+}
+function getUserByStripeSubscription(stripeSubscriptionId) {
+  return queryOne('SELECT * FROM users WHERE stripe_subscription_id=?', [stripeSubscriptionId]);
+}
+
 module.exports = {
   getDb, save,
   // Facilitators
@@ -1102,4 +1109,6 @@ module.exports = {
   markMotdSent, countApprovedMotd, getNextMotdToSend, getMotdRecipients,
   // Reminders
   getInactiveUsers,
+  // Stripe lookups
+  getUserByStripeCustomer, getUserByStripeSubscription,
 };
