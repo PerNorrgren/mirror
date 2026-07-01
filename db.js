@@ -304,10 +304,6 @@ async function getDb() {
     FOREIGN KEY (user_id) REFERENCES users(id)
   )`);
 
-  // Seed legal documents if table is empty
-  const existingLegal = queryAll('SELECT id FROM legal_documents LIMIT 1');
-  if (!existingLegal.length) seedLegalDocuments();
-
   // ── Migrations — add columns to existing tables if they don't exist ──
   // This is how we handle the live database which was created before the full schema
   // above existed. The CREATE TABLE IF NOT EXISTS above handles new installs;
@@ -375,6 +371,10 @@ async function getDb() {
   // Seed default membership plans if empty
   const existingPlans = queryAll('SELECT id FROM membership_plans LIMIT 1');
   if (!existingPlans.length) seedMembershipPlans();
+
+  // Seed legal documents if empty
+  const existingLegal = queryAll('SELECT id FROM legal_documents LIMIT 1');
+  if (!existingLegal.length) seedLegalDocuments();
 
   save();
   return db;
@@ -1074,6 +1074,134 @@ function getUserByStripeCustomer(stripeCustomerId) {
 }
 function getUserByStripeSubscription(stripeSubscriptionId) {
   return queryOne('SELECT * FROM users WHERE stripe_subscription_id=?', [stripeSubscriptionId]);
+}
+
+// ── Legal document functions ──
+
+function seedLegalDocuments() {
+  try {
+    const { LEGAL_DOCS } = require('./legal_docs_seed');
+    LEGAL_DOCS.forEach(doc => {
+      db.run(
+        `INSERT OR IGNORE INTO legal_documents
+          (id, slug, title, version, content, requires_consent, published, published_at)
+         VALUES (?,?,?,?,?,?,1,datetime('now'))`,
+        [doc.id, doc.slug, doc.title, doc.version, doc.content, doc.requires_consent ? 1 : 0]
+      );
+    });
+    save();
+    console.log('[db] legal documents seeded.');
+  } catch(e) {
+    console.warn('[db] legal_docs_seed not found — skipping seed:', e.message);
+  }
+}
+
+function getLegalDocument(slug) {
+  return queryOne(
+    `SELECT * FROM legal_documents WHERE slug=? AND published=1 ORDER BY version DESC LIMIT 1`,
+    [slug]
+  );
+}
+
+function getLegalDocumentVersion(slug, version) {
+  return queryOne('SELECT * FROM legal_documents WHERE slug=? AND version=?', [slug, version]);
+}
+
+function getLegalDocumentHistory(slug) {
+  return queryAll('SELECT * FROM legal_documents WHERE slug=? ORDER BY version DESC', [slug]);
+}
+
+function getAllCurrentLegalDocuments() {
+  return queryAll(
+    `SELECT ld.* FROM legal_documents ld
+     INNER JOIN (
+       SELECT slug, MAX(version) as max_version
+       FROM legal_documents WHERE published=1
+       GROUP BY slug
+     ) latest ON ld.slug=latest.slug AND ld.version=latest.max_version
+     ORDER BY ld.title ASC`
+  );
+}
+
+function getAllLegalDocumentsAdmin() {
+  return queryAll(
+    `SELECT ld.*,
+      (SELECT COUNT(*) FROM user_legal_consents WHERE slug=ld.slug AND version=ld.version) as consent_count
+     FROM legal_documents ld
+     ORDER BY ld.slug ASC, ld.version DESC`
+  );
+}
+
+function createLegalDocument(id, slug, title, content, requiresConsent) {
+  const current = queryOne('SELECT MAX(version) as v FROM legal_documents WHERE slug=?', [slug]);
+  const version = (current?.v || 0) + 1;
+  db.run(
+    `INSERT INTO legal_documents (id,slug,title,version,content,requires_consent,published)
+     VALUES (?,?,?,?,?,?,0)`,
+    [id, slug, title, version, content, requiresConsent ? 1 : 0]
+  );
+  save();
+  return version;
+}
+
+function updateLegalDocument(id, title, content, requiresConsent) {
+  db.run(
+    `UPDATE legal_documents SET title=?,content=?,requires_consent=? WHERE id=? AND published=0`,
+    [title, content, requiresConsent ? 1 : 0, id]
+  );
+  save();
+}
+
+function publishLegalDocument(id) {
+  db.run(`UPDATE legal_documents SET published=1, published_at=datetime('now') WHERE id=?`, [id]);
+  save();
+}
+
+function deleteLegalDocumentDraft(id) {
+  db.run(`DELETE FROM legal_documents WHERE id=? AND published=0`, [id]);
+  save();
+}
+
+function recordLegalConsent(id, userId, documentId, slug, version) {
+  try {
+    db.run(
+      `INSERT OR IGNORE INTO user_legal_consents (id,user_id,document_id,slug,version)
+       VALUES (?,?,?,?,?)`,
+      [id, userId, documentId, slug, version]
+    );
+    save();
+  } catch(e) { /* duplicate */ }
+}
+
+function hasUserAcceptedDocument(userId, slug) {
+  const current = getLegalDocument(slug);
+  if (!current) return true;
+  const consent = queryOne(
+    'SELECT id FROM user_legal_consents WHERE user_id=? AND slug=? AND version=?',
+    [userId, slug, current.version]
+  );
+  return !!consent;
+}
+
+function getPendingConsentsForUser(userId) {
+  const docs = getAllCurrentLegalDocuments();
+  return docs.filter(doc => {
+    if (!doc.requires_consent) return false;
+    const consent = queryOne(
+      'SELECT id FROM user_legal_consents WHERE user_id=? AND slug=? AND version=?',
+      [userId, doc.slug, doc.version]
+    );
+    return !consent;
+  });
+}
+
+function getUserConsentHistory(userId) {
+  return queryAll(
+    `SELECT ulc.*, ld.title FROM user_legal_consents ulc
+     LEFT JOIN legal_documents ld ON ulc.document_id=ld.id
+     WHERE ulc.user_id=? ORDER BY ulc.accepted_at DESC`,
+    [userId]
+  );
 }
 
 module.exports = {
