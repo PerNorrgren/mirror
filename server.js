@@ -2060,6 +2060,25 @@ function maybeSendMotdLowStockAlert(remaining) {
   );
 }
 
+// ── MOTD — bulk approve ──
+// Approves every id in the list, then checks stock ONCE at the end — not once
+// per item, which would otherwise fire the low-stock alert email repeatedly
+// while working through a big batch of drafts.
+// MUST be registered before the /:id route below — otherwise Express matches
+// the literal path segment "bulk-approve" as if it were an :id parameter, and
+// this route never gets hit at all. (Same bug caught and fixed on
+// /api/admin/facilitator-requests/bulk — missed re-checking this one at the time.)
+app.patch('/api/admin/motd/bulk-approve', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    if (!ids.length) return res.status(400).json({ error: 'No messages selected.' });
+    ids.forEach(id => db.approveMotd(id));
+    const remaining = db.countApprovedMotd();
+    maybeSendMotdLowStockAlert(remaining);
+    res.json({ ok: true, approvedCount: remaining, lowStock: remaining <= 5, approved: ids.length });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.patch('/api/admin/motd/:id', auth.requireAuthApi(['admin']), (req, res) => {
   try {
     const { body, scheduledDate, action } = req.body;
@@ -2072,21 +2091,6 @@ app.patch('/api/admin/motd/:id', auth.requireAuthApi(['admin']), (req, res) => {
     }
     if (body != null) db.updateMotd(req.params.id, body.trim(), scheduledDate || null);
     res.json({ ok: true });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-// ── MOTD — bulk approve ──
-// Approves every id in the list, then checks stock ONCE at the end — not once
-// per item, which would otherwise fire the low-stock alert email repeatedly
-// while working through a big batch of drafts.
-app.patch('/api/admin/motd/bulk-approve', auth.requireAuthApi(['admin']), (req, res) => {
-  try {
-    const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
-    if (!ids.length) return res.status(400).json({ error: 'No messages selected.' });
-    ids.forEach(id => db.approveMotd(id));
-    const remaining = db.countApprovedMotd();
-    maybeSendMotdLowStockAlert(remaining);
-    res.json({ ok: true, approvedCount: remaining, lowStock: remaining <= 5, approved: ids.length });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
