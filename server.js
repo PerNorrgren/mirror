@@ -40,6 +40,176 @@ const APP_URL            = process.env.APP_URL || 'https://mirror-production-018
 const app    = express();
 const server = http.createServer(app);
 
+// ── Stripe webhook — MUST be registered before app.use(express.json()) below. ──
+// Stripe signature verification needs the exact raw request bytes; if the global
+// json() parser runs first, it consumes the body and re-parses it into an object,
+// and stripe.webhooks.constructEvent() can never verify against that — it silently
+// fails signature verification on every single webhook call. Confirmed this by
+// testing directly: with json() registered first, req.body inside a route with its
+// own express.raw() middleware was already a parsed object, not a Buffer. Moving
+// this route above the global parser (Express runs middleware/routes in
+// registration order, and a route that sends a response stops the chain there)
+// fixes it without needing changes anywhere else.
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  if (!stripe) return res.json({ received: true });
+
+  let event;
+  try {
+    if (STRIPE_WEBHOOK_SECRET) {
+      event = stripe.webhooks.constructEvent(req.body, req.headers['stripe-signature'], STRIPE_WEBHOOK_SECRET);
+    } else {
+      event = JSON.parse(req.body.toString());
+      console.warn('[stripe webhook] no STRIPE_WEBHOOK_SECRET set — skipping signature verification');
+    }
+  } catch(e) {
+    console.error('[stripe webhook] signature verification failed:', e.message);
+    return res.status(400).json({ error: 'Webhook signature verification failed.' });
+  }
+
+  try {
+    switch (event.type) {
+
+      case 'checkout.session.completed': {
+        const session = event.data.object;
+        const userId  = session.client_reference_id || session.metadata?.user_id;
+        if (!userId) break;
+
+        // Course enrolment payment — separate flow from the membership
+        // upgrade below, branched on metadata.type set when the session was
+        // created (see /api/client/enrol).
+        if (session.metadata?.type === 'course_enrolment') {
+          const courseInstanceId = session.metadata?.course_instance_id;
+          if (!courseInstanceId) break;
+          const alreadyEnrolled = db.getEnrolmentForUserAndInstance(userId, courseInstanceId);
+          if (alreadyEnrolled) { console.log(`[stripe] course_enrolment — user ${userId} already enrolled in ${courseInstanceId}, skipping duplicate`); break; }
+
+          const enrolId = uuidv4();
+          db.createEnrolment(enrolId, userId, courseInstanceId, 'paid', session.amount_total || 0, session.payment_intent || null);
+
+          const user = db.getUser(userId);
+          const instance = db.getCourseInstance(courseInstanceId);
+          if (user?.email && instance) {
+            await sendEmail(user.email, `You're enrolled — ${instance.title}`,
+              `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
+                <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:24px">Deeper Mindfulness</div>
+                <h2 style="font-weight:normal;font-size:22px;margin-bottom:16px">You're in, ${user.name}.</h2>
+                <p style="font-size:15px;line-height:1.8;margin-bottom:20px">Payment received — you're enrolled in <strong>${instance.title}</strong>. Start whenever you're ready.</p>
+                <a href="${APP_URL}/client/" style="display:inline-block;padding:12px 28px;border-radius:8px;background:#2d7873;color:#fff;text-decoration:none;font-size:13px;letter-spacing:0.08em">Go to your course</a>
+                <hr style="border:none;border-top:1px solid #e8e8e8;margin:32px 0"/>
+                <p style="font-size:12px;color:#aaa">Making the practices land and last for life.</p>
+              </div>`
+            );
+          }
+          console.log(`[stripe] course_enrolment completed — user ${userId} → instance ${courseInstanceId}`);
+          break;
+        }
+
+        // Membership upgrade (existing flow, unchanged).
+        const tier    = parseInt(session.metadata?.tier || '1');
+        const billing = session.metadata?.billing;
+
+        let expiresAt = null;
+        if (billing === 'monthly') {
+          const d = new Date(); d.setMonth(d.getMonth() + 1);
+          expiresAt = d.toISOString();
+        } else if (billing === 'annual') {
+          const d = new Date(); d.setFullYear(d.getFullYear() + 1);
+          expiresAt = d.toISOString();
+        }
+        // lifetime: no expiry
+
+        const subId = session.subscription || null;
+        db.setMemberTier(userId, tier, expiresAt, null, session.customer, subId);
+
+        // Send welcome email
+        const user = db.getUser(userId);
+        if (user?.email) {
+          await sendEmail(user.email,
+            'Welcome to Deeper Mindfulness — you\'re a Member',
+            `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
+              <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:24px">Deeper Mindfulness</div>
+              <h2 style="font-weight:normal;font-size:22px;margin-bottom:16px">You're in, ${user.name}.</h2>
+              <p style="font-size:15px;line-height:1.8;margin-bottom:20px">Your membership is active. The full practice library is open, and your daily message from Per starts tomorrow morning.</p>
+              <a href="${APP_URL}/client/" style="display:inline-block;padding:12px 28px;border-radius:8px;background:#2d7873;color:#fff;text-decoration:none;font-size:13px;letter-spacing:0.08em">Go to your practice space</a>
+              <hr style="border:none;border-top:1px solid #e8e8e8;margin:32px 0"/>
+              <p style="font-size:12px;color:#aaa">Making the practices land and last for life. · <a href="${APP_URL}/account" style="color:#888">Manage my account</a></p>
+            </div>`
+          );
+        }
+        console.log(`[stripe] checkout.session.completed — user ${userId} → tier ${tier}`);
+        break;
+      }
+
+      case 'invoice.payment_succeeded': {
+        // Subscription renewal — extend expiry
+        const invoice = event.data.object;
+        const subId   = invoice.subscription;
+        if (!subId) break;
+        const user = db.queryAll ? null : null; // use raw query below
+        const users = db.getDb ? null : null;
+        // Find user by stripe_subscription_id
+        const found = db.queryAll
+          ? null
+          : null;
+        // Use direct DB query via exported function
+        const userRec = db.getUserByStripeSubscription ? db.getUserByStripeSubscription(subId) : null;
+        if (userRec) {
+          const d = new Date(); d.setMonth(d.getMonth() + 1);
+          db.setMemberTier(userRec.id, userRec.member_tier || 1, d.toISOString(), null, null, null);
+        }
+        break;
+      }
+
+      case 'customer.subscription.deleted': {
+        // Subscription cancelled — drop to Explorer
+        const sub    = event.data.object;
+        const custId = sub.customer;
+        // Find user by stripe_customer_id
+        const userRec = db.getUserByStripeCustomer ? db.getUserByStripeCustomer(custId) : null;
+        if (userRec) {
+          db.downgradeToExplorer(userRec.id);
+          const user = db.getUser(userRec.id);
+          if (user?.email) {
+            await sendEmail(user.email,
+              'Your Deeper Mindfulness membership has ended',
+              `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
+                <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:24px">Deeper Mindfulness</div>
+                <p style="font-size:15px;line-height:1.8;margin-bottom:20px">Your membership has ended. You can continue exploring as a free member, or <a href="${APP_URL}/membership" style="color:#2d7873">rejoin at any time</a>.</p>
+                <p style="font-size:12px;color:#aaa">Making the practices land and last for life.</p>
+              </div>`
+            );
+          }
+        }
+        break;
+      }
+
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object;
+        const custId  = invoice.customer;
+        const userRec = db.getUserByStripeCustomer ? db.getUserByStripeCustomer(custId) : null;
+        if (userRec?.email) {
+          await sendEmail(userRec.email,
+            'Payment issue with your Deeper Mindfulness membership',
+            `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
+              <p style="font-size:15px;line-height:1.8;margin-bottom:20px">We couldn't process your membership payment. Please update your payment details to keep your access.</p>
+              <a href="https://billing.stripe.com/p/login/test_00g" style="display:inline-block;padding:12px 28px;border-radius:8px;background:#2d7873;color:#fff;text-decoration:none;font-size:13px">Update payment details</a>
+            </div>`
+          );
+        }
+        break;
+      }
+
+      default:
+        console.log(`[stripe webhook] unhandled event: ${event.type}`);
+    }
+  } catch(e) {
+    console.error('[stripe webhook] handler error:', e.message);
+  }
+
+  res.json({ received: true });
+});
+
+
 app.use(express.json());
 app.use(cookieParser());
 // NOTE: uploads are served exclusively via the auth-checked /uploads/:filename route below.
@@ -497,6 +667,212 @@ app.patch('/api/clients/:id/archive', auth.requireAuthApi(['admin','facilitator'
 });
 app.get('/api/my/profile', auth.requireAuthApi(['client']), (req, res) => {
   res.json({ ...db.getUser(req.user.id), sessions: db.getClientSessionsForClient(req.user.id), practices: db.getPracticesForClient(req.user.id) });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// ── Client-facing courses — browse, enrol, resume, progress, quizzes ──
+// ══════════════════════════════════════════════════════════════════════════
+
+// Browse — every open instance, flagged with the current user's enrolment
+// status (and % complete, if already enrolled) so the UI can show
+// "Enrol" vs "Continue" without a second round trip.
+app.get('/api/client/courses', auth.requireAuthApi(['client']), (req, res) => {
+  try {
+    const instances = db.getAllCourseInstances({ status: 'open' });
+    const myEnrolments = db.getEnrolmentsForUser(req.user.id);
+    const byInstance = {};
+    myEnrolments.forEach(e => { byInstance[e.course_instance_id] = e; });
+    res.json(instances.map(i => {
+      const enrolment = byInstance[i.id];
+      return {
+        ...i,
+        enrolled: !!enrolment,
+        enrolment_id: enrolment?.id || null,
+        percent_complete: enrolment?.percent_complete ?? null,
+      };
+    }));
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// My enrolments — "My Courses" list, % complete computed live.
+app.get('/api/client/enrolments', auth.requireAuthApi(['client']), (req, res) => {
+  try { res.json(db.getEnrolmentsForUser(req.user.id)); }
+  catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// The dashboard "Continue Lesson X" card — one pointer across every active,
+// incomplete enrolment, or null if there's nothing to resume.
+app.get('/api/client/resume', auth.requireAuthApi(['client']), (req, res) => {
+  try { res.json(db.getDashboardResumeCard(req.user.id)); }
+  catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Enrol — free immediately for Members regardless of instance price; for
+// Explorers, free instances enrol immediately too, but a priced instance
+// requires payment first (Stripe integration is the next build — this
+// deliberately returns a clear "payment required" error rather than
+// pretending to enrol someone who hasn't paid).
+app.post('/api/client/enrol', auth.requireAuthApi(['client']), async (req, res) => {
+  try {
+    const { courseInstanceId } = req.body;
+    if (!courseInstanceId) return res.status(400).json({ error: 'courseInstanceId is required.' });
+    const instance = db.getCourseInstance(courseInstanceId);
+    if (!instance) return res.status(404).json({ error: 'Course instance not found.' });
+    if (instance.status !== 'open') return res.status(400).json({ error: 'This course is not currently open for enrolment.' });
+
+    const existing = db.getEnrolmentForUserAndInstance(req.user.id, courseInstanceId);
+    if (existing) return res.json({ ok: true, enrolmentId: existing.id, note: 'Already enrolled.' });
+
+    if (instance.mode === 'cohort' && instance.capacity) {
+      const currentCount = db.getEnrolmentsForInstance(courseInstanceId).length;
+      if (currentCount >= instance.capacity) return res.status(400).json({ error: 'This cohort is full.' });
+    }
+
+    const user = db.getUser(req.user.id);
+    const isMember = (user.member_tier || 0) >= 1;
+
+    // Explorer + priced instance → real payment required. Rather than just
+    // blocking, start a Stripe Checkout session and hand back the URL so the
+    // client can redirect straight there — same one-off "payment" mode
+    // already used for lifetime membership (see /api/membership/checkout).
+    if (!isMember && instance.price_cents > 0) {
+      if (!stripe) return res.status(503).json({ error: 'Payment isn\'t set up yet — please check back soon.' });
+      try {
+        let customerId = user.stripe_customer_id || null;
+        if (!customerId) {
+          const customer = await stripe.customers.create({ email: user.email, name: user.name, metadata: { user_id: user.id } });
+          customerId = customer.id;
+          db.setMemberTier(user.id, user.member_tier || 0, null, null, customerId, null);
+        }
+        const session = await stripe.checkout.sessions.create({
+          customer: customerId,
+          payment_method_types: ['card'],
+          // Ad-hoc one-time price built inline — course instances don't need
+          // a Stripe Price object pre-created for every price point, unless
+          // stripe_price_id was explicitly set (e.g. to reuse a shared price).
+          line_items: [instance.stripe_price_id
+            ? { price: instance.stripe_price_id, quantity: 1 }
+            : { price_data: { currency: 'gbp', product_data: { name: `${instance.title} — Deeper Mindfulness` }, unit_amount: instance.price_cents }, quantity: 1 }
+          ],
+          mode: 'payment',
+          success_url: `${APP_URL}/client/?enrolled=1`,
+          cancel_url:  `${APP_URL}/client/?enrolled=0`,
+          metadata: { type: 'course_enrolment', user_id: user.id, course_instance_id: courseInstanceId },
+          client_reference_id: user.id,
+        });
+        return res.json({ ok: true, requiresPayment: true, checkoutUrl: session.url });
+      } catch(e) {
+        console.error('[stripe course checkout]', e.message);
+        return res.status(500).json({ error: 'Could not start checkout. Please try again.' });
+      }
+    }
+
+    const id = uuidv4();
+    db.createEnrolment(id, req.user.id, courseInstanceId, 'free', 0, null);
+    res.json({ ok: true, enrolmentId: id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Course detail for an enrolled user — every lesson with this user's own
+// progress and the single resume pointer, in one call for the course player.
+app.get('/api/client/courses/:instanceId', auth.requireAuthApi(['client']), (req, res) => {
+  try {
+    const instance = db.getCourseInstance(req.params.instanceId);
+    if (!instance) return res.status(404).json({ error: 'Not found.' });
+    const enrolment = db.getEnrolmentForUserAndInstance(req.user.id, req.params.instanceId);
+    if (!enrolment) return res.status(403).json({ error: 'You are not enrolled in this course.' });
+
+    const lessons = db.getLessonsForCourse(instance.course_id);
+    const progressRows = db.getProgressForEnrolment(enrolment.id);
+    const progressByLesson = {};
+    progressRows.forEach(p => { progressByLesson[p.lesson_id] = p; });
+
+    const resume = db.getResumePoint(enrolment.id, instance.course_id);
+
+    res.json({
+      instance, enrolment,
+      lessons: lessons.map(l => ({ ...l, progress: progressByLesson[l.id] || { status: 'not_started', last_position: null } })),
+      resume,
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Lesson detail — files, quiz (answer-safe), and this user's own progress.
+// instanceId is required so we can verify the requester is actually
+// enrolled — a lesson alone doesn't carry that, since one course can have
+// several instances.
+app.get('/api/client/lessons/:lessonId', auth.requireAuthApi(['client']), (req, res) => {
+  try {
+    const { instanceId } = req.query;
+    if (!instanceId) return res.status(400).json({ error: 'instanceId is required.' });
+    const instance = db.getCourseInstance(instanceId);
+    const enrolment = instance ? db.getEnrolmentForUserAndInstance(req.user.id, instanceId) : null;
+    if (!enrolment) return res.status(403).json({ error: 'You are not enrolled in this course.' });
+
+    const lesson = db.getLesson(req.params.lessonId);
+    if (!lesson || lesson.course_id !== instance.course_id) return res.status(404).json({ error: 'Lesson not found in this course.' });
+
+    const quizRecord = db.getQuizForLesson(req.params.lessonId);
+    const quiz = quizRecord ? db.getQuizForTaking(quizRecord.id) : null;
+    const bestAttempt = quizRecord ? db.getBestAttempt(enrolment.id, quizRecord.id) : null;
+    const progress = db.getLessonProgress(enrolment.id, req.params.lessonId) || { status: 'not_started', last_position: null };
+
+    res.json({
+      lesson, files: db.getFilesForLesson(req.params.lessonId), quiz, bestAttempt, progress,
+      enrolment_id: enrolment.id,
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Progress update — called when a lesson is opened (in_progress) and when
+// it's finished (completed). Resolves the enrolment server-side from
+// (user, instanceId) rather than trusting a client-supplied enrolmentId.
+app.post('/api/client/progress', auth.requireAuthApi(['client']), (req, res) => {
+  try {
+    const { instanceId, lessonId, status, lastPosition } = req.body;
+    if (!instanceId || !lessonId || !status) return res.status(400).json({ error: 'instanceId, lessonId, and status are required.' });
+    const enrolment = db.getEnrolmentForUserAndInstance(req.user.id, instanceId);
+    if (!enrolment) return res.status(403).json({ error: 'You are not enrolled in this course.' });
+
+    db.upsertLessonProgress(uuidv4(), enrolment.id, lessonId, status, lastPosition || null);
+
+    // If every lesson in the course is now complete, mark the enrolment itself completed.
+    const instance = db.getCourseInstance(instanceId);
+    const allLessons = db.getLessonsForCourse(instance.course_id);
+    const progressRows = db.getProgressForEnrolment(enrolment.id);
+    const completedCount = progressRows.filter(p => p.status === 'completed').length;
+    if (allLessons.length && completedCount >= allLessons.length) db.markEnrolmentCompleted(enrolment.id);
+
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Quiz attempt — scored server-side against the real answer key, which the
+// client was never sent (see getQuizForTaking). answers: { questionId: [optionId, ...] }.
+app.post('/api/client/quizzes/:quizId/attempt', auth.requireAuthApi(['client']), (req, res) => {
+  try {
+    const { instanceId, answers } = req.body;
+    if (!instanceId || !answers) return res.status(400).json({ error: 'instanceId and answers are required.' });
+    const enrolment = db.getEnrolmentForUserAndInstance(req.user.id, instanceId);
+    if (!enrolment) return res.status(403).json({ error: 'You are not enrolled in this course.' });
+
+    const quiz = db.getFullQuiz(req.params.quizId);
+    if (!quiz) return res.status(404).json({ error: 'Quiz not found.' });
+
+    let correctCount = 0;
+    quiz.questions.forEach(q => {
+      const correctIds = q.options.filter(o => o.is_correct).map(o => o.id).sort();
+      const submittedIds = (answers[q.id] || []).slice().sort();
+      const isCorrect = correctIds.length === submittedIds.length && correctIds.every((id, i) => id === submittedIds[i]);
+      if (isCorrect) correctCount++;
+    });
+    const scorePct = quiz.questions.length ? Math.round((correctCount / quiz.questions.length) * 100) : 0;
+    const passed = scorePct >= quiz.pass_threshold_pct;
+
+    const id = uuidv4();
+    db.recordQuizAttempt(id, enrolment.id, req.params.quizId, scorePct, passed, JSON.stringify(answers));
+    res.json({ ok: true, scorePct, passed, correctCount, totalQuestions: quiz.questions.length });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── My Space — check if facilitator has a client record ──
@@ -2034,135 +2410,6 @@ app.post('/api/membership/checkout', auth.requireAuthApi(['client']), async (req
 app.get('/membership/success', auth.requireAuth(['client']), async (req, res) => {
   // Webhook will have already fired and set the tier — just redirect to account
   res.redirect('/account?welcome=member');
-});
-
-// ── Stripe: webhook ──
-// Must use raw body — express.json() must NOT have parsed this request
-app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-  if (!stripe) return res.json({ received: true });
-
-  let event;
-  try {
-    if (STRIPE_WEBHOOK_SECRET) {
-      event = stripe.webhooks.constructEvent(req.body, req.headers['stripe-signature'], STRIPE_WEBHOOK_SECRET);
-    } else {
-      event = JSON.parse(req.body.toString());
-      console.warn('[stripe webhook] no STRIPE_WEBHOOK_SECRET set — skipping signature verification');
-    }
-  } catch(e) {
-    console.error('[stripe webhook] signature verification failed:', e.message);
-    return res.status(400).json({ error: 'Webhook signature verification failed.' });
-  }
-
-  try {
-    switch (event.type) {
-
-      case 'checkout.session.completed': {
-        const session = event.data.object;
-        const userId  = session.client_reference_id || session.metadata?.user_id;
-        const tier    = parseInt(session.metadata?.tier || '1');
-        const billing = session.metadata?.billing;
-        if (!userId) break;
-
-        let expiresAt = null;
-        if (billing === 'monthly') {
-          const d = new Date(); d.setMonth(d.getMonth() + 1);
-          expiresAt = d.toISOString();
-        } else if (billing === 'annual') {
-          const d = new Date(); d.setFullYear(d.getFullYear() + 1);
-          expiresAt = d.toISOString();
-        }
-        // lifetime: no expiry
-
-        const subId = session.subscription || null;
-        db.setMemberTier(userId, tier, expiresAt, null, session.customer, subId);
-
-        // Send welcome email
-        const user = db.getUser(userId);
-        if (user?.email) {
-          await sendEmail(user.email,
-            'Welcome to Deeper Mindfulness — you\'re a Member',
-            `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
-              <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:24px">Deeper Mindfulness</div>
-              <h2 style="font-weight:normal;font-size:22px;margin-bottom:16px">You're in, ${user.name}.</h2>
-              <p style="font-size:15px;line-height:1.8;margin-bottom:20px">Your membership is active. The full practice library is open, and your daily message from Per starts tomorrow morning.</p>
-              <a href="${APP_URL}/client/" style="display:inline-block;padding:12px 28px;border-radius:8px;background:#2d7873;color:#fff;text-decoration:none;font-size:13px;letter-spacing:0.08em">Go to your practice space</a>
-              <hr style="border:none;border-top:1px solid #e8e8e8;margin:32px 0"/>
-              <p style="font-size:12px;color:#aaa">Making the practices land and last for life. · <a href="${APP_URL}/account" style="color:#888">Manage my account</a></p>
-            </div>`
-          );
-        }
-        console.log(`[stripe] checkout.session.completed — user ${userId} → tier ${tier}`);
-        break;
-      }
-
-      case 'invoice.payment_succeeded': {
-        // Subscription renewal — extend expiry
-        const invoice = event.data.object;
-        const subId   = invoice.subscription;
-        if (!subId) break;
-        const user = db.queryAll ? null : null; // use raw query below
-        const users = db.getDb ? null : null;
-        // Find user by stripe_subscription_id
-        const found = db.queryAll
-          ? null
-          : null;
-        // Use direct DB query via exported function
-        const userRec = db.getUserByStripeSubscription ? db.getUserByStripeSubscription(subId) : null;
-        if (userRec) {
-          const d = new Date(); d.setMonth(d.getMonth() + 1);
-          db.setMemberTier(userRec.id, userRec.member_tier || 1, d.toISOString(), null, null, null);
-        }
-        break;
-      }
-
-      case 'customer.subscription.deleted': {
-        // Subscription cancelled — drop to Explorer
-        const sub    = event.data.object;
-        const custId = sub.customer;
-        // Find user by stripe_customer_id
-        const userRec = db.getUserByStripeCustomer ? db.getUserByStripeCustomer(custId) : null;
-        if (userRec) {
-          db.downgradeToExplorer(userRec.id);
-          const user = db.getUser(userRec.id);
-          if (user?.email) {
-            await sendEmail(user.email,
-              'Your Deeper Mindfulness membership has ended',
-              `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
-                <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:24px">Deeper Mindfulness</div>
-                <p style="font-size:15px;line-height:1.8;margin-bottom:20px">Your membership has ended. You can continue exploring as a free member, or <a href="${APP_URL}/membership" style="color:#2d7873">rejoin at any time</a>.</p>
-                <p style="font-size:12px;color:#aaa">Making the practices land and last for life.</p>
-              </div>`
-            );
-          }
-        }
-        break;
-      }
-
-      case 'invoice.payment_failed': {
-        const invoice = event.data.object;
-        const custId  = invoice.customer;
-        const userRec = db.getUserByStripeCustomer ? db.getUserByStripeCustomer(custId) : null;
-        if (userRec?.email) {
-          await sendEmail(userRec.email,
-            'Payment issue with your Deeper Mindfulness membership',
-            `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
-              <p style="font-size:15px;line-height:1.8;margin-bottom:20px">We couldn't process your membership payment. Please update your payment details to keep your access.</p>
-              <a href="https://billing.stripe.com/p/login/test_00g" style="display:inline-block;padding:12px 28px;border-radius:8px;background:#2d7873;color:#fff;text-decoration:none;font-size:13px">Update payment details</a>
-            </div>`
-          );
-        }
-        break;
-      }
-
-      default:
-        console.log(`[stripe webhook] unhandled event: ${event.type}`);
-    }
-  } catch(e) {
-    console.error('[stripe webhook] handler error:', e.message);
-  }
-
-  res.json({ received: true });
 });
 
 // ── Message of the day — admin ──

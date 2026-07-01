@@ -950,6 +950,37 @@ function getResumePoint(enrolmentId, courseId) {
   return null; // every lesson completed
 }
 
+// The single "Continue Lesson X" card for the client dashboard — picks the
+// most recently active lesson across ALL of a user's active, incomplete
+// enrolments (not just one course). Falls back to enrolled_at for an
+// enrolment with no progress yet at all, so a freshly-enrolled course can
+// still surface as "start here" rather than being invisible until touched.
+function getDashboardResumeCard(userId) {
+  const enrolments = getEnrolmentsForUser(userId).filter(e => e.status === 'active' && e.percent_complete < 100);
+  if (!enrolments.length) return null;
+
+  let best = null;
+  for (const e of enrolments) {
+    const resume = getResumePoint(e.id, e.course_id);
+    if (!resume) continue;
+    let activityTime = e.enrolled_at;
+    if (resume.status === 'in_progress') {
+      const row = queryOne('SELECT started_at FROM lesson_progress WHERE enrolment_id=? AND lesson_id=?', [e.id, resume.id]);
+      if (row?.started_at) activityTime = row.started_at;
+    }
+    if (!best || new Date(activityTime) > new Date(best.activityTime)) {
+      best = {
+        lesson_id: resume.id, lesson_title: resume.title, lesson_number: resume.lesson_number,
+        last_position: resume.last_position, lesson_status: resume.status,
+        enrolment_id: e.id, course_instance_id: e.course_instance_id, course_id: e.course_id,
+        course_title: e.course_title, instance_title: e.instance_title,
+        percent_complete: e.percent_complete, activityTime,
+      };
+    }
+  }
+  return best;
+}
+
 // ── Cohort live sessions ──
 function addInstanceSession(id, courseInstanceId, sessionNumber, title, scheduledAt, facilitatorNotes, handout) {
   getDbSync().run(
@@ -1048,6 +1079,22 @@ function getFullQuiz(quizId) {
     options: getOptionsForQuestion(q.id),
   }));
   return { ...quiz, questions };
+}
+
+// Client-facing version of getFullQuiz — strips is_correct from every option
+// before it ever leaves the server. Scoring happens server-side against the
+// real data (see the /attempt endpoint), so the client never needs, and must
+// never receive, the answer key while taking the quiz.
+function getQuizForTaking(quizId) {
+  const full = getFullQuiz(quizId);
+  if (!full) return null;
+  return {
+    ...full,
+    questions: full.questions.map(q => ({
+      ...q,
+      options: q.options.map(({ is_correct, ...safe }) => safe),
+    })),
+  };
 }
 
 function recordQuizAttempt(id, enrolmentId, quizId, scorePct, passed, answersJson) {
@@ -1862,13 +1909,13 @@ module.exports = {
   createEnrolment, getEnrolment, getEnrolmentForUserAndInstance, getEnrolmentsForUser,
   getEnrolmentsForInstance, updateEnrolmentPaymentStatus, markEnrolmentCompleted, deleteEnrolment,
   // Lesson progress
-  upsertLessonProgress, getLessonProgress, getProgressForEnrolment, getResumePoint,
+  upsertLessonProgress, getLessonProgress, getProgressForEnrolment, getResumePoint, getDashboardResumeCard,
   // Cohort live sessions
   addInstanceSession, getSessionsForInstance, updateInstanceSession, deleteInstanceSession,
   // Student notes
   addStudentNote, getNotesForStudentInInstance,
   // Quizzes
-  createQuiz, getQuiz, getQuizForLesson, updateQuiz, deleteQuiz, getFullQuiz,
+  createQuiz, getQuiz, getQuizForLesson, updateQuiz, deleteQuiz, getFullQuiz, getQuizForTaking,
   addQuizQuestion, getQuestionsForQuiz, updateQuizQuestion, deleteQuizQuestion,
   addQuizOption, getOptionsForQuestion, updateQuizOption, deleteQuizOption,
   recordQuizAttempt, getAttemptsForEnrolment, getBestAttempt,

@@ -106,6 +106,43 @@
     .upgrade-prompt-btn { margin-top:6px; padding:10px 22px; border-radius:9px; border:1px solid rgba(180,230,200,0.35); background:rgba(180,230,200,0.1); color:rgba(180,230,200,0.85); font-size:12px; letter-spacing:0.08em; text-transform:uppercase; text-decoration:none; font-family:'Georgia',serif; transition:background 0.2s; }
     .upgrade-prompt-btn:hover { background:rgba(180,230,200,0.18); }
 
+    /* ── Resume card (Talk tab) ── */
+    .resume-card { display:none; background:rgba(180,230,200,0.07); border:1px solid rgba(180,230,200,0.2); border-radius:12px; padding:12px 16px; margin-bottom:14px; cursor:pointer; transition:background 0.2s; }
+    .resume-card:hover { background:rgba(180,230,200,0.12); }
+    .resume-card-label { font-size:10px; letter-spacing:0.15em; text-transform:uppercase; color:rgba(180,230,200,0.55); margin-bottom:4px; }
+    .resume-card-title { font-size:14px; color:rgba(255,255,255,0.85); }
+    .resume-card-sub { font-size:12px; color:rgba(255,255,255,0.4); margin-top:2px; }
+
+    /* ── Courses ── */
+    .courses-view { display:none; flex-direction:column; overflow:hidden; }
+    .courses-view.visible { display:flex; }
+    .courses-scroll { flex:1; overflow-y:auto; padding:16px 18px 24px; }
+    .courses-section-label { font-size:10px; letter-spacing:0.15em; text-transform:uppercase; color:rgba(255,255,255,0.3); margin-bottom:10px; }
+    .course-card { background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:14px 16px; margin-bottom:10px; cursor:pointer; transition:border-color 0.2s; }
+    .course-card:hover { border-color:rgba(255,255,255,0.18); }
+    .course-card-title { font-size:14px; color:rgba(255,255,255,0.82); }
+    .course-card-sub { font-size:12px; color:rgba(255,255,255,0.35); margin-top:3px; }
+    .course-progress-bar { height:5px; background:rgba(255,255,255,0.08); border-radius:3px; margin-top:10px; overflow:hidden; }
+    .course-progress-fill { height:100%; background:rgba(180,230,200,0.6); border-radius:3px; transition:width 0.3s; }
+    .course-progress-pct { font-size:11px; color:rgba(180,230,200,0.6); margin-top:4px; }
+    .course-card-badge { display:inline-block; font-size:10px; letter-spacing:0.05em; padding:2px 8px; border-radius:4px; background:rgba(255,255,255,0.06); color:rgba(255,255,255,0.4); margin-top:6px; }
+    .course-card-price { font-size:12px; color:rgba(255,200,130,0.75); margin-top:6px; }
+    .courses-back-btn { background:none; border:none; color:rgba(255,255,255,0.4); font-size:12px; letter-spacing:0.08em; text-transform:uppercase; cursor:pointer; font-family:'Georgia',serif; margin-bottom:14px; padding:0; }
+    .courses-back-btn:hover { color:rgba(180,230,200,0.7); }
+    .lesson-item-row { display:flex; align-items:center; gap:12px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:10px; padding:12px 14px; margin-bottom:8px; }
+    .lesson-item-num { font-size:16px; color:rgba(255,255,255,0.2); min-width:22px; }
+    .lesson-item-body { flex:1; min-width:0; }
+    .lesson-item-title { font-size:13px; color:rgba(255,255,255,0.8); }
+    .lesson-item-status { font-size:11px; margin-top:3px; }
+    .lesson-item-status.completed { color:rgba(180,230,200,0.65); }
+    .lesson-item-status.in_progress { color:rgba(255,200,130,0.65); }
+    .lesson-item-status.not_started { color:rgba(255,255,255,0.3); }
+    .lesson-open-btn { padding:7px 16px; border-radius:8px; border:1px solid rgba(180,230,200,0.3); background:rgba(180,230,200,0.08); color:rgba(180,230,200,0.8); font-size:11px; letter-spacing:0.06em; text-transform:uppercase; cursor:pointer; font-family:'Georgia',serif; flex-shrink:0; }
+    .quiz-question-text { font-size:14px; color:rgba(255,255,255,0.82); margin-bottom:8px; }
+    .quiz-option-row { display:flex; align-items:center; gap:10px; padding:8px 0; font-size:13px; color:rgba(255,255,255,0.65); }
+    .quiz-result-pass { color:rgba(180,230,200,0.85); font-size:14px; text-align:center; }
+    .quiz-result-fail { color:rgba(255,140,120,0.85); font-size:14px; text-align:center; }
+
     /* Content tab */
     .content-view { display:none; flex-direction:column; overflow:hidden; }
     .content-view.visible { display:flex; }
@@ -262,6 +299,7 @@
     <div class="tabs">
       <button class="tab active" id="tabTalk"      onclick="switchTab('talk')">Talk</button>
       <button class="tab"        id="tabPractices" onclick="switchTab('practices')">Practices</button>
+      <button class="tab"        id="tabCourses"   onclick="switchTab('courses')">Courses</button>
       <button class="tab"        id="tabSessions"  onclick="switchTab('sessions')">Sessions</button>
       <button class="tab"        id="tabHistory"   onclick="switchTab('history')">History</button>
       <button class="tab"        id="tabContent"   onclick="switchTab('content')">Content</button>
@@ -270,6 +308,11 @@
 
     <!-- Talk -->
     <div class="talk-view" id="talkView">
+      <div class="resume-card" id="resumeCard" style="display:none" onclick="jumpToResume()">
+        <div class="resume-card-label">Continue</div>
+        <div class="resume-card-title" id="resumeCardTitle"></div>
+        <div class="resume-card-sub" id="resumeCardSub"></div>
+      </div>
       <div class="transcript-area">
         <p class="transcript-text" id="transcript">—</p>
       </div>
@@ -334,6 +377,21 @@
       </div>
     </div>
 
+    <!-- Courses -->
+    <div class="courses-view" id="coursesView">
+      <div class="courses-scroll" id="coursesListScroll">
+        <div class="courses-section-label">My Courses</div>
+        <div id="myCoursesList"><div class="no-content">Loading…</div></div>
+        <div class="courses-section-label" style="margin-top:22px">Available Courses</div>
+        <div id="browseCoursesList"></div>
+      </div>
+      <div class="courses-scroll" id="courseDetailScroll" style="display:none">
+        <button class="courses-back-btn" onclick="closeCourseDetail()">&larr; Back to courses</button>
+        <div id="courseDetailHeader"></div>
+        <div id="courseLessonsList"></div>
+      </div>
+    </div>
+
     <!-- Player -->
     <div class="player-overlay" id="playerOverlay">
       <div class="player-title" id="playerTitle"></div>
@@ -359,6 +417,20 @@
     <div class="pw-btns">
       <button class="pw-cancel" onclick="document.getElementById('pwOverlay').classList.remove('visible')">Cancel</button>
       <button class="pw-ok" onclick="doChangePw()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Quiz-taking overlay -->
+<div class="pw-overlay" id="quizOverlay">
+  <div class="pw-modal" style="max-width:440px">
+    <h3 id="quizOverlayTitle">Quiz</h3>
+    <div id="quizOverlayBody" style="max-height:50vh;overflow-y:auto;display:flex;flex-direction:column;gap:16px"></div>
+    <div id="quizOverlayResult" style="display:none"></div>
+    <div class="pw-err" id="quizOverlayErr"></div>
+    <div class="pw-btns">
+      <button class="pw-cancel" onclick="document.getElementById('quizOverlay').classList.remove('visible')">Close</button>
+      <button class="pw-ok" id="quizSubmitBtn" onclick="submitQuizAttempt()">Submit</button>
     </div>
   </div>
 </div>
@@ -406,16 +478,18 @@
 
   // ── Tabs ──
   function switchTab(tab) {
-    ['talk','practices','sessions','history','content','config'].forEach(t => {
+    ['talk','practices','courses','sessions','history','content','config'].forEach(t => {
       document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1)).classList.toggle('active', t === tab);
     });
     document.getElementById('talkView').style.display      = tab === 'talk' ? '' : 'none';
     document.getElementById('practicesView').classList.toggle('visible', tab === 'practices');
+    document.getElementById('coursesView').classList.toggle('visible',   tab === 'courses');
     document.getElementById('sessionsView').classList.toggle('visible',  tab === 'sessions');
     document.getElementById('historyView').classList.toggle('visible',   tab === 'history');
     document.getElementById('contentView').classList.toggle('visible',   tab === 'content');
     document.getElementById('configView').classList.toggle('visible',    tab === 'config');
     if (tab === 'practices') loadPractices();
+    if (tab === 'courses')   { closeCourseDetail(); loadCourses(); }
     if (tab === 'sessions')  loadSessions();
     if (tab === 'history')   loadHistory();
     if (tab === 'content')   loadContent();
@@ -1191,6 +1265,221 @@
       </div>
     `).join('');
   }
+
+  // ── Courses / enrolment / progress / quizzes ──
+  let currentInstanceId = null;
+
+  // Dashboard resume card — checked once on load, independent of which tab is open.
+  async function loadResumeCard() {
+    try {
+      const res  = await fetch('/api/client/resume');
+      if (!res.ok) return;
+      const card = await res.json();
+      if (!card) return;
+      document.getElementById('resumeCardTitle').textContent = `${card.course_title} — ${card.lesson_title}`;
+      document.getElementById('resumeCardSub').textContent = `${card.percent_complete}% complete`;
+      document.getElementById('resumeCard').style.display = 'block';
+      document.getElementById('resumeCard').dataset.instanceId = card.course_instance_id;
+      document.getElementById('resumeCard').dataset.lessonId = card.lesson_id;
+    } catch(e) { /* no resume card — fine, just don't show one */ }
+  }
+  function jumpToResume() {
+    const instanceId = document.getElementById('resumeCard').dataset.instanceId;
+    const lessonId = document.getElementById('resumeCard').dataset.lessonId;
+    if (!instanceId) return;
+    switchTab('courses');
+    openCourseDetail(instanceId).then(() => openLesson(lessonId));
+  }
+
+  async function loadCourses() {
+    try {
+      const res  = await fetch('/api/client/courses');
+      const list = await res.json();
+      const mine = list.filter(i => i.enrolled);
+      const browse = list.filter(i => !i.enrolled);
+      renderMyCourses(mine);
+      renderBrowseCourses(browse);
+    } catch(e) {
+      document.getElementById('myCoursesList').innerHTML = '<div class="no-content">Could not load courses.</div>';
+    }
+  }
+
+  function renderMyCourses(list) {
+    const el = document.getElementById('myCoursesList');
+    if (!list.length) { el.innerHTML = '<div class="no-content">You haven\'t enrolled in anything yet.</div>'; return; }
+    el.innerHTML = list.map(i => `
+      <div class="course-card" onclick="openCourseDetail('${i.id}')">
+        <div class="course-card-title">${i.course_title}</div>
+        <div class="course-card-sub">${i.title}${i.mode==='cohort'?' · Cohort':''}</div>
+        <div class="course-progress-bar"><div class="course-progress-fill" style="width:${i.percent_complete||0}%"></div></div>
+        <div class="course-progress-pct">${i.percent_complete||0}% complete</div>
+      </div>
+    `).join('');
+  }
+
+  function renderBrowseCourses(list) {
+    const el = document.getElementById('browseCoursesList');
+    if (!list.length) { el.innerHTML = '<div class="no-content">Nothing new to enrol in right now.</div>'; return; }
+    el.innerHTML = list.map(i => `
+      <div class="course-card" onclick="enrolInCourse('${i.id}')">
+        <div class="course-card-title">${i.course_title}</div>
+        <div class="course-card-sub">${i.title}${i.mode==='cohort'&&i.start_date?' · Starts '+i.start_date:''}</div>
+        <div class="course-card-price">${i.price_cents ? '£'+(i.price_cents/100).toFixed(2) : 'Free'}</div>
+        <div class="course-card-badge">${i.mode==='cohort'?'Cohort':'Self-paced'}</div>
+      </div>
+    `).join('');
+  }
+
+  async function enrolInCourse(instanceId) {
+    try {
+      const res  = await fetch('/api/client/enrol', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ courseInstanceId: instanceId }) });
+      const data = await res.json();
+      if (data.requiresPayment && data.checkoutUrl) { window.location.href = data.checkoutUrl; return; }
+      if (data.ok) { loadCourses(); return; }
+      alert(data.error || 'Could not enrol. Please try again.');
+    } catch(e) { alert('Could not enrol. Please try again.'); }
+  }
+
+  // Returning from Stripe checkout (success or cancel) — land back on the
+  // Courses tab and refresh so a completed payment shows up immediately.
+  (function handleEnrolReturn() {
+    const params = new URLSearchParams(location.search);
+    if (!params.has('enrolled')) return;
+    const success = params.get('enrolled') === '1';
+    history.replaceState({}, '', location.pathname); // strip the query string
+    setTimeout(() => {
+      switchTab('courses');
+      if (success) alert('Payment received — you\'re enrolled.');
+    }, 300);
+  })();
+
+  async function openCourseDetail(instanceId) {
+    currentInstanceId = instanceId;
+    document.getElementById('coursesListScroll').style.display = 'none';
+    document.getElementById('courseDetailScroll').style.display = '';
+    try {
+      const res  = await fetch(`/api/client/courses/${instanceId}`);
+      const data = await res.json();
+      if (data.error) { document.getElementById('courseDetailHeader').innerHTML = `<div class="no-content">${data.error}</div>`; return; }
+      document.getElementById('courseDetailHeader').innerHTML = `
+        <div class="courses-section-label" style="margin-bottom:4px">${data.instance.title}</div>
+      `;
+      document.getElementById('courseLessonsList').innerHTML = data.lessons.map(l => `
+        <div class="lesson-item-row">
+          <div class="lesson-item-num">${l.lesson_number}</div>
+          <div class="lesson-item-body">
+            <div class="lesson-item-title">${l.title}</div>
+            <div class="lesson-item-status ${l.progress.status}">${l.progress.status==='completed'?'Completed':l.progress.status==='in_progress'?'In progress':'Not started'}</div>
+          </div>
+          <button class="lesson-open-btn" onclick="openLesson('${l.id}')">${l.progress.status==='not_started'?'Start':'Open'}</button>
+        </div>
+      `).join('');
+    } catch(e) {
+      document.getElementById('courseDetailHeader').innerHTML = '<div class="no-content">Could not load this course.</div>';
+    }
+  }
+
+  function closeCourseDetail() {
+    currentInstanceId = null;
+    document.getElementById('coursesListScroll').style.display = '';
+    document.getElementById('courseDetailScroll').style.display = 'none';
+  }
+
+  // Opening a lesson: mark it in_progress (idempotent — safe to call every
+  // time it's opened, not just the first time), then show its files using
+  // the same player overlay the Content tab already uses, and surface a
+  // quiz button if one exists.
+  async function openLesson(lessonId) {
+    if (!currentInstanceId) return;
+    try {
+      const res  = await fetch(`/api/client/lessons/${lessonId}?instanceId=${currentInstanceId}`);
+      const data = await res.json();
+      if (data.error) { alert(data.error); return; }
+
+      if (data.progress.status === 'not_started') {
+        await fetch('/api/client/progress', { method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ instanceId: currentInstanceId, lessonId, status: 'in_progress' }) });
+      }
+
+      if (data.files && data.files.length) {
+        openContentFile(data.files[0]);
+      }
+
+      if (data.quiz) {
+        openQuiz(data.quiz, lessonId);
+      } else {
+        // No quiz — completing the lesson just means marking it done directly.
+        if (confirm(`Mark "${data.lesson.title}" as complete?`)) {
+          await fetch('/api/client/progress', { method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ instanceId: currentInstanceId, lessonId, status: 'completed' }) });
+          openCourseDetail(currentInstanceId);
+          loadResumeCard();
+        }
+      }
+    } catch(e) { alert('Could not open this lesson. Please try again.'); }
+  }
+
+  // ── Quiz taking ──
+  let activeQuiz = null, activeQuizLessonId = null;
+
+  function openQuiz(quiz, lessonId) {
+    activeQuiz = quiz;
+    activeQuizLessonId = lessonId;
+    document.getElementById('quizOverlayTitle').textContent = quiz.title;
+    document.getElementById('quizOverlayErr').textContent = '';
+    document.getElementById('quizOverlayResult').style.display = 'none';
+    document.getElementById('quizSubmitBtn').style.display = '';
+    document.getElementById('quizOverlayBody').innerHTML = quiz.questions.map(q => `
+      <div>
+        <div class="quiz-question-text">${q.question_text}</div>
+        ${q.options.map(o => `
+          <label class="quiz-option-row">
+            <input type="${q.question_type==='multi_choice'?'checkbox':'radio'}" name="q-${q.id}" value="${o.id}"/>
+            ${o.option_text}
+          </label>
+        `).join('')}
+      </div>
+    `).join('');
+    document.getElementById('quizOverlay').classList.add('visible');
+  }
+
+  async function submitQuizAttempt() {
+    if (!activeQuiz || !currentInstanceId) return;
+    const answers = {};
+    activeQuiz.questions.forEach(q => {
+      const checked = Array.from(document.querySelectorAll(`input[name="q-${q.id}"]:checked`)).map(el => el.value);
+      answers[q.id] = checked;
+    });
+    try {
+      const res  = await fetch(`/api/client/quizzes/${activeQuiz.id}/attempt`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ instanceId: currentInstanceId, answers })
+      });
+      const data = await res.json();
+      if (data.error) { document.getElementById('quizOverlayErr').textContent = data.error; return; }
+
+      const resultEl = document.getElementById('quizOverlayResult');
+      resultEl.style.display = 'block';
+      resultEl.innerHTML = `<div class="${data.passed?'quiz-result-pass':'quiz-result-fail'}">
+        ${data.scorePct}% — ${data.passed ? 'Passed' : 'Not quite — try again anytime'}
+        <div style="font-size:12px;color:rgba(255,255,255,0.35);margin-top:4px">${data.correctCount} of ${data.totalQuestions} correct</div>
+      </div>`;
+      document.getElementById('quizSubmitBtn').style.display = 'none';
+
+      if (data.passed) {
+        await fetch('/api/client/progress', { method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ instanceId: currentInstanceId, lessonId: activeQuizLessonId, status: 'completed' }) });
+        openCourseDetail(currentInstanceId);
+        loadResumeCard();
+      }
+    } catch(e) {
+      document.getElementById('quizOverlayErr').textContent = 'Could not submit. Please try again.';
+    }
+  }
+
+  // Kick off the resume card check as soon as the page loads, independent of
+  // whichever tab happens to be active first.
+  loadResumeCard();
 </script>
 <!-- Playlist name modal -->
 <div class="pl-modal-overlay" id="plNameModal">
