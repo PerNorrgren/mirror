@@ -143,6 +143,7 @@
     <div class="nav-tabs">
       <button class="nav-tab active" data-tab="library">Library</button>
       <button class="nav-tab" data-tab="courses">Courses</button>
+      <button class="nav-tab" data-tab="instances">Instances</button>
       <button class="nav-tab" data-tab="playlists">Playlists</button>
       <button class="nav-tab" data-tab="categories">Categories</button>
     </div>
@@ -205,6 +206,16 @@
           <button class="btn primary" onclick="openNewCourse()">+ New course</button>
         </div>
         <div class="item-list" id="courseList"></div>
+      </div>
+
+      <!-- COURSE INSTANCES -->
+      <div class="panel" id="panel-instances">
+        <div class="toolbar">
+          <div class="toolbar-title">Course instances</div>
+          <select class="filter" id="instCourseF" onchange="renderInstances()"><option value="">All courses</option></select>
+          <button class="btn primary" onclick="openNewInstance()">+ New instance</button>
+        </div>
+        <div class="item-list" id="instanceList"></div>
       </div>
 
       <!-- PLAYLISTS -->
@@ -312,14 +323,15 @@
 <!-- New Course Modal -->
 <div class="modal-overlay" id="newCourseModal">
   <div class="modal" style="max-width:620px">
-    <h3>New course</h3>
+    <h3 id="ncTitle">New course</h3>
+    <input type="hidden" id="editCourseId"/>
     <div><label>Title</label><input type="text" id="cTitle" placeholder="e.g. Finding Joy — 10 Sessions"/></div>
     <div><label>Description</label><textarea id="cDesc" rows="2"></textarea></div>
     <div class="modal-row">
       <div><label>Category</label><select id="cCat" onchange="populateSub('cCat','cSub')"><option value="">Select…</option></select></div>
       <div><label>Subcategory</label><select id="cSub"><option value="">Select…</option></select></div>
     </div>
-    <div><label>Lessons (files assigned after saving)</label>
+    <div id="lessonBuilderWrap"><label>Lessons (files assigned after saving)</label>
       <div class="lesson-builder">
         <div class="lesson-builder-hdr">Add lessons</div>
         <div id="lessonEntries"></div>
@@ -364,7 +376,7 @@
         <option value="facilitator">Facilitator</option>
       </select>
     </div>
-    <div><label>Pick files from library</label>
+    <div id="alPickerWrap"><label>Pick files from library</label>
       <div class="file-picker">
         <input class="file-picker-search" placeholder="Search library…" oninput="filterPicker(this.value,'alPicker')"/>
         <div class="file-picker-list" id="alPicker"></div>
@@ -374,6 +386,69 @@
     <div class="modal-btns">
       <button class="modal-cancel" onclick="closeModal('addLessonModal')">Cancel</button>
       <button class="modal-ok" onclick="saveLesson()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Quiz Modal — Per Bot 5 follow-on, one quiz per lesson -->
+<div class="modal-overlay" id="quizModal">
+  <div class="modal wide" style="max-width:660px">
+    <h3 id="qmTitle">Quiz</h3>
+    <input type="hidden" id="qmLessonId"/>
+    <input type="hidden" id="qmQuizId"/>
+    <div id="qmBody" style="overflow-y:auto;max-height:55vh"></div>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeModal('quizModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Course Instance Modal -->
+<div class="modal-overlay" id="instanceModal">
+  <div class="modal" style="max-width:560px">
+    <h3 id="instModalTitle">New instance</h3>
+    <input type="hidden" id="instId"/>
+    <div><label>Course</label><select id="instCourseSel"><option value="">Select…</option></select></div>
+    <div><label>Instance title</label><input type="text" id="instTitle" placeholder="e.g. Self-Paced, or Sept 2026 Cohort"/></div>
+    <div class="modal-row">
+      <div><label>Mode</label><select id="instMode" onchange="toggleInstanceModeFields()"><option value="self_paced">Self-paced</option><option value="cohort">Cohort</option></select></div>
+      <div><label>Status</label><select id="instStatus"><option value="draft">Draft</option><option value="open">Open</option><option value="closed">Closed</option><option value="archived">Archived</option></select></div>
+    </div>
+    <div id="instCohortFields">
+      <div class="modal-row">
+        <div><label>Start date</label><input type="date" id="instStart"/></div>
+        <div><label>End date</label><input type="date" id="instEnd"/></div>
+      </div>
+      <div><label>Capacity</label><input type="number" id="instCapacity" min="1" placeholder="Leave blank for unlimited"/></div>
+    </div>
+    <div><label>Price (£, one-off — Explorers only; Members always enrol free)</label><input type="number" id="instPrice" min="0" step="0.01" placeholder="0.00"/></div>
+    <div class="modal-err" id="instErr"></div>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeModal('instanceModal')">Cancel</button>
+      <button class="modal-ok" onclick="saveInstance()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Cohort Sessions Modal -->
+<div class="modal-overlay" id="sessionsModal">
+  <div class="modal wide" style="max-width:640px">
+    <h3 id="sessModalTitle">Sessions</h3>
+    <input type="hidden" id="sessInstanceId"/>
+    <div id="sessBody" style="overflow-y:auto;max-height:55vh"></div>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeModal('sessionsModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Enrolments Modal — read-only roster -->
+<div class="modal-overlay" id="enrolmentsModal">
+  <div class="modal wide" style="max-width:600px">
+    <h3 id="enrolModalTitle">Enrolments</h3>
+    <div id="enrolBody" style="overflow-y:auto;max-height:55vh"></div>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeModal('enrolmentsModal')">Close</button>
     </div>
   </div>
 </div>
@@ -431,10 +506,10 @@
 </div>
 
 <script>
-let allCats=[],allFiles=[],allCourses=[],allPlaylists=[];
+let allCats=[],allFiles=[],allCourses=[],allPlaylists=[],allInstances=[];
 let upQueue=[];
 let leCount=0;
-let curCourseId=null, curPlaylistId=null, addFilesLessonId=null;
+let curCourseId=null, curPlaylistId=null, addFilesLessonId=null, editingLessonId=null;
 
 // Nav
 document.querySelectorAll('.nav-tab').forEach(t=>t.addEventListener('click',()=>{
@@ -492,15 +567,23 @@ function populateSub(catSelId,subSelId,selectedId=''){
 }
 
 async function loadAll(){
-  const [cats,files,courses,pls]=await Promise.all([
+  const [cats,files,courses,pls,instances]=await Promise.all([
     fetch('/api/content/categories').then(r=>r.json()),
     fetch('/api/content/library').then(r=>r.json()),
     fetch('/api/content/courses').then(r=>r.json()),
     fetch('/api/content/playlists').then(r=>r.json()),
+    fetch('/api/admin/course-instances').then(r=>r.json()),
   ]);
-  allCats=cats;allFiles=files;allCourses=courses;allPlaylists=pls;
+  allCats=cats;allFiles=files;allCourses=courses;allPlaylists=pls;allInstances=instances;
   populateCatSels('libCat','upCat','efCat','cCat','plCat','catParent','courseCatF','plCatF');
-  renderLib(files);renderCourses(courses);renderPlaylists(pls);renderCats(cats);
+  populateInstanceCourseSels();
+  renderLib(files);renderCourses(courses);renderPlaylists(pls);renderCats(cats);renderInstances();
+}
+
+function populateInstanceCourseSels(){
+  const opts=allCourses.map(c=>`<option value="${c.id}">${c.title}</option>`).join('');
+  document.getElementById('instCourseF').innerHTML='<option value="">All courses</option>'+opts;
+  document.getElementById('instCourseSel').innerHTML='<option value="">Select…</option>'+opts;
 }
 
 // ── Library ──
@@ -1010,6 +1093,171 @@ function getPickerSel(pickerId){
 // ── Courses ──
 function filterCourses(){const c=document.getElementById('courseCatF').value;renderCourses(allCourses.filter(x=>!c||x.category_id===c));}
 
+// ── Course instances ──
+function fmtPrice(cents){ return cents ? '£'+(cents/100).toFixed(2) : 'Free'; }
+const INSTANCE_STATUS_STYLE = { draft:'background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.35)', open:'background:rgba(180,230,200,0.1);color:rgba(180,230,200,0.75)', closed:'background:rgba(255,180,60,0.1);color:rgba(255,180,60,0.7)', archived:'background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.25)' };
+
+function renderInstances(){
+  const courseFilter=document.getElementById('instCourseF').value;
+  const list=allInstances.filter(i=>!courseFilter||i.course_id===courseFilter);
+  const el=document.getElementById('instanceList');
+  if(!list.length){el.innerHTML='<div class="empty">No instances yet.</div>';return;}
+  el.innerHTML=list.map(i=>`
+    <div class="item-row">
+      <div class="item-row-info">
+        <div class="item-row-title">${i.title}</div>
+        <div class="item-row-meta">${i.course_title||''}${i.mode==='cohort'&&i.start_date?` · Starts ${i.start_date}`:''}${i.mode==='cohort'&&i.capacity?` · Capacity ${i.capacity}`:''}</div>
+        <div class="item-row-tags">
+          <span class="tag cat">${i.mode==='cohort'?'Cohort':'Self-paced'}</span>
+          <span class="tag" style="${INSTANCE_STATUS_STYLE[i.status]||''}">${i.status}</span>
+          <span class="tag uses">${fmtPrice(i.price_cents)}</span>
+        </div>
+      </div>
+      <div class="item-row-actions">
+        <button class="btn sm" onclick="editInstance('${i.id}')">Edit</button>
+        ${i.mode==='cohort'?`<button class="btn sm" onclick="openSessionsModal('${i.id}','${i.title.replace(/'/g,"\\'")}')">Sessions</button>`:''}
+        <button class="btn sm" onclick="openEnrolmentsModal('${i.id}','${i.title.replace(/'/g,"\\'")}')">Enrolments</button>
+        <button class="btn sm danger" onclick="delInstance('${i.id}')">Delete</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function toggleInstanceModeFields(){
+  const isCohort=document.getElementById('instMode').value==='cohort';
+  document.getElementById('instCohortFields').style.display=isCohort?'':'none';
+}
+
+function openNewInstance(){
+  document.getElementById('instId').value='';
+  document.getElementById('instModalTitle').textContent='New instance';
+  document.getElementById('instCourseSel').value='';
+  document.getElementById('instTitle').value='';
+  document.getElementById('instMode').value='self_paced';
+  document.getElementById('instStart').value='';document.getElementById('instEnd').value='';document.getElementById('instCapacity').value='';
+  document.getElementById('instPrice').value='';
+  document.getElementById('instStatus').value='draft';
+  document.getElementById('instErr').textContent='';
+  toggleInstanceModeFields();
+  openModal('instanceModal');
+}
+
+function editInstance(id){
+  const i=allInstances.find(x=>x.id===id);
+  if(!i)return;
+  document.getElementById('instId').value=id;
+  document.getElementById('instModalTitle').textContent='Edit instance';
+  document.getElementById('instCourseSel').value=i.course_id;
+  document.getElementById('instTitle').value=i.title;
+  document.getElementById('instMode').value=i.mode;
+  document.getElementById('instStart').value=i.start_date||'';
+  document.getElementById('instEnd').value=i.end_date||'';
+  document.getElementById('instCapacity').value=i.capacity||'';
+  document.getElementById('instPrice').value=i.price_cents?(i.price_cents/100).toFixed(2):'';
+  document.getElementById('instStatus').value=i.status;
+  document.getElementById('instErr').textContent='';
+  toggleInstanceModeFields();
+  openModal('instanceModal');
+}
+
+async function saveInstance(){
+  const id=document.getElementById('instId').value;
+  const courseId=document.getElementById('instCourseSel').value;
+  const title=document.getElementById('instTitle').value.trim();
+  const mode=document.getElementById('instMode').value;
+  const startDate=document.getElementById('instStart').value||null;
+  const endDate=document.getElementById('instEnd').value||null;
+  const capacity=document.getElementById('instCapacity').value?parseInt(document.getElementById('instCapacity').value):null;
+  const priceCents=document.getElementById('instPrice').value?Math.round(parseFloat(document.getElementById('instPrice').value)*100):0;
+  const status=document.getElementById('instStatus').value;
+  const err=document.getElementById('instErr');
+  if(!courseId||!title){err.textContent='Course and title are required.';return;}
+
+  const body=JSON.stringify({courseId,mode,title,startDate,endDate,capacity,priceCents,status});
+  const res=id
+    ? await fetch(`/api/admin/course-instances/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body})
+    : await fetch('/api/admin/course-instances',{method:'POST',headers:{'Content-Type':'application/json'},body});
+  const d=await res.json();
+  if(d.error){err.textContent=d.error;return;}
+  closeModal('instanceModal');loadAll();
+}
+
+async function delInstance(id){
+  if(!confirm('Delete this instance? All enrolments and progress for it will be removed too. Cannot be undone.'))return;
+  await fetch(`/api/admin/course-instances/${id}`,{method:'DELETE'});
+  loadAll();
+}
+
+// ── Cohort sessions (single-level modal, same full-refresh pattern as quiz builder) ──
+async function openSessionsModal(instanceId,instanceTitle){
+  document.getElementById('sessInstanceId').value=instanceId;
+  document.getElementById('sessModalTitle').textContent='Sessions — '+instanceTitle;
+  await refreshSessionsModal();
+  openModal('sessionsModal');
+}
+async function refreshSessionsModal(){
+  const instanceId=document.getElementById('sessInstanceId').value;
+  const sessions=await fetch(`/api/admin/course-instances/${instanceId}/sessions`).then(r=>r.json());
+  const el=document.getElementById('sessBody');
+  let h=sessions.map(s=>`
+    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:9px;padding:12px 14px;margin-bottom:8px">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+        <div style="font-size:14px;color:rgba(255,255,255,0.2);min-width:20px">${s.session_number}</div>
+        <input type="text" value="${escAttr(s.title)}" id="sesstitle-${s.id}" style="flex:1"/>
+        <input type="text" value="${escAttr(s.scheduled_at||'')}" id="sessdate-${s.id}" placeholder="YYYY-MM-DD HH:MM" style="width:160px"/>
+      </div>
+      <textarea id="sesshandout-${s.id}" placeholder="Handout (visible to students)" rows="2" style="width:100%;margin-bottom:6px">${escAttr(s.handout)}</textarea>
+      <textarea id="sessnotes-${s.id}" placeholder="Facilitator notes (private)" rows="2" style="width:100%">${escAttr(s.facilitator_notes)}</textarea>
+      <div style="margin-top:8px;display:flex;gap:6px">
+        <button class="btn sm" onclick="saveSession('${s.id}')">Save</button>
+        <button class="btn sm danger" onclick="deleteSession('${s.id}')">Delete</button>
+      </div>
+    </div>
+  `).join('');
+  h+=`<button class="btn primary sm" onclick="addSession()">+ Add session</button>`;
+  el.innerHTML=h;
+}
+async function addSession(){
+  const instanceId=document.getElementById('sessInstanceId').value;
+  const existing=await fetch(`/api/admin/course-instances/${instanceId}/sessions`).then(r=>r.json());
+  await fetch(`/api/admin/course-instances/${instanceId}/sessions`,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({sessionNumber:existing.length+1,title:'New session'})});
+  await refreshSessionsModal();
+}
+async function saveSession(id){
+  await fetch(`/api/admin/instance-sessions/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      title:document.getElementById(`sesstitle-${id}`).value.trim(),
+      scheduledAt:document.getElementById(`sessdate-${id}`).value.trim()||null,
+      handout:document.getElementById(`sesshandout-${id}`).value,
+      facilitatorNotes:document.getElementById(`sessnotes-${id}`).value,
+    })});
+  await refreshSessionsModal();
+}
+async function deleteSession(id){
+  if(!confirm('Delete this session?'))return;
+  await fetch(`/api/admin/instance-sessions/${id}`,{method:'DELETE'});
+  await refreshSessionsModal();
+}
+
+// ── Enrolments — read-only roster view ──
+async function openEnrolmentsModal(instanceId,instanceTitle){
+  document.getElementById('enrolModalTitle').textContent='Enrolments — '+instanceTitle;
+  const list=await fetch(`/api/admin/course-instances/${instanceId}/enrolments`).then(r=>r.json());
+  const el=document.getElementById('enrolBody');
+  if(!list.length){el.innerHTML='<div class="empty" style="padding:16px">No enrolments yet.</div>';openModal('enrolmentsModal');return;}
+  el.innerHTML=`<div class="file-list-header"><div class="flr-title">Name</div><div class="flr-meta" style="width:180px">Email</div><div class="flr-meta">Payment</div><div class="flr-meta">Status</div></div>`+
+    list.map(e=>`
+      <div class="file-list-row">
+        <div class="flr-title">${e.user_name}</div>
+        <div class="flr-meta" style="width:180px">${e.user_email}</div>
+        <div class="flr-meta">${e.payment_status}${e.amount_paid_cents?' · '+fmtPrice(e.amount_paid_cents):''}</div>
+        <div class="flr-meta">${e.status}</div>
+      </div>
+    `).join('');
+  openModal('enrolmentsModal');
+}
+
 function renderCourses(courses){
   const el=document.getElementById('courseList');
   if(!courses.length){el.innerHTML='<div class="empty">No courses yet.</div>';return;}
@@ -1024,6 +1272,7 @@ function renderCourses(courses){
         </div>
       </div>
       <div class="item-row-actions">
+        <button class="btn sm" onclick="editCourse('${c.id}')">Edit</button>
         <button class="btn sm" onclick="openCourseDetail('${c.id}')">Lessons</button>
         <button class="btn sm danger" onclick="delCourse('${c.id}')">Delete</button>
       </div>
@@ -1033,27 +1282,50 @@ function renderCourses(courses){
 
 function openNewCourse(){
   leCount=0;
+  document.getElementById('ncTitle').textContent='New course';
+  document.getElementById('editCourseId').value='';
+  document.getElementById('lessonBuilderWrap').style.display='';
   document.getElementById('cTitle').value='';document.getElementById('cDesc').value='';
   document.getElementById('cCat').value='';document.getElementById('cSub').innerHTML='<option value="">Select…</option>';
   document.getElementById('lessonEntries').innerHTML='';document.getElementById('cErr').textContent='';
   addLE();openModal('newCourseModal');
 }
 
-function addLE(){
-  leCount++;const n=leCount;
-  const d=document.createElement('div');d.className='lesson-entry';d.id=`le-${n}`;
-  d.innerHTML=`<div class="lesson-entry-num">${n}</div>
-    <input type="text" placeholder="Lesson title" id="le-t-${n}"/>
-    <select id="le-v-${n}"><option value="client">Client</option><option value="facilitator">Facilitator</option><option value="guest">Guest</option></select>
-    <button class="lesson-entry-rm" onclick="document.getElementById('le-${n}').remove()">×</button>`;
-  document.getElementById('lessonEntries').appendChild(d);
+// Edit — lesson-builder is hidden here since lessons for an existing course
+// are already managed from the course detail view; re-showing it would just
+// invite duplicate lesson creation on save.
+function editCourse(courseId){
+  const c=allCourses.find(x=>x.id===courseId);
+  if(!c)return;
+  document.getElementById('ncTitle').textContent='Edit course';
+  document.getElementById('editCourseId').value=courseId;
+  document.getElementById('lessonBuilderWrap').style.display='none';
+  document.getElementById('cTitle').value=c.title||'';
+  document.getElementById('cDesc').value=c.description||'';
+  document.getElementById('cCat').value=c.category_id||'';
+  populateSub('cCat','cSub');
+  document.getElementById('cSub').value=c.subcategory_id||'';
+  document.getElementById('cErr').textContent='';
+  openModal('newCourseModal');
 }
 
 async function saveCourse(){
   const title=document.getElementById('cTitle').value.trim();
   const catId=document.getElementById('cCat').value;
   const err=document.getElementById('cErr');
+  const editId=document.getElementById('editCourseId').value;
   if(!title||!catId){err.textContent='Title and category required.';return;}
+
+  if(editId){
+    const res=await fetch(`/api/content/courses/${editId}`,{method:'PATCH',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({title,description:document.getElementById('cDesc').value,
+        categoryId:catId,subcategoryId:document.getElementById('cSub').value||null})});
+    const d=await res.json();
+    if(d.error){err.textContent=d.error;return;}
+    closeModal('newCourseModal');loadAll();
+    return;
+  }
+
   const lessons=[];
   document.querySelectorAll('.lesson-entry').forEach((el,i)=>{
     const t=el.querySelector('input[type=text]');const v=el.querySelector('select');
@@ -1065,6 +1337,16 @@ async function saveCourse(){
   const d=await res.json();
   if(d.error){err.textContent=d.error;return;}
   closeModal('newCourseModal');loadAll();openCourseDetail(d.id);
+}
+
+function addLE(){
+  leCount++;const n=leCount;
+  const d=document.createElement('div');d.className='lesson-entry';d.id=`le-${n}`;
+  d.innerHTML=`<div class="lesson-entry-num">${n}</div>
+    <input type="text" placeholder="Lesson title" id="le-t-${n}"/>
+    <select id="le-v-${n}"><option value="client">Client</option><option value="facilitator">Facilitator</option><option value="guest">Guest</option></select>
+    <button class="lesson-entry-rm" onclick="document.getElementById('le-${n}').remove()">×</button>`;
+  document.getElementById('lessonEntries').appendChild(d);
 }
 
 async function openCourseDetail(courseId){
@@ -1082,6 +1364,8 @@ async function openCourseDetail(courseId){
       <div style="padding:11px 14px;display:flex;align-items:center;gap:10px">
         <div style="font-size:16px;color:rgba(255,255,255,0.2);min-width:22px">${l.lesson_number}</div>
         <div style="flex:1"><div style="font-size:13px;color:rgba(255,255,255,0.78)">${l.title}</div><div style="margin-top:3px">${vbadge(l.visibility)}</div></div>
+        <button class="btn sm" onclick="editLesson('${l.id}','${l.lesson_number}','${l.title.replace(/'/g,"\\'")}','${l.visibility}')">Edit</button>
+        <button class="btn sm" onclick="openQuizModal('${l.id}','${l.title.replace(/'/g,"\\'")}')">Quiz</button>
         <button class="btn sm" onclick="openAddFilesToLesson('${l.id}','${l.title}')">+ Files</button>
         <button class="btn sm danger" onclick="delLesson('${l.id}')">Delete</button>
       </div>
@@ -1098,21 +1382,35 @@ async function openCourseDetail(courseId){
 }
 
 function openAddFilesToLesson(lessonId,lessonTitle){
-  addFilesLessonId=lessonId;
+  addFilesLessonId=lessonId;editingLessonId=null;
   document.getElementById('alTitle').textContent='Add files to: '+lessonTitle;
   document.getElementById('alNum').value='';document.getElementById('alLessonTitle').value=lessonTitle;
   document.getElementById('alVis').value='client';document.getElementById('alErr').textContent='';
   document.getElementById('alLessonId').value=lessonId;
+  document.getElementById('alPickerWrap').style.display='';
   renderPicker('alPicker');openModal('addLessonModal');
 }
 
 function openAddLesson(){
-  addFilesLessonId=null;
+  addFilesLessonId=null;editingLessonId=null;
   document.getElementById('alTitle').textContent='Add lesson';
   document.getElementById('alNum').value='';document.getElementById('alLessonTitle').value='';
   document.getElementById('alVis').value='client';document.getElementById('alErr').textContent='';
   document.getElementById('alLessonId').value='';
+  document.getElementById('alPickerWrap').style.display='';
   renderPicker('alPicker');openModal('addLessonModal');
+}
+
+// Edit metadata only (number/title/visibility) — no file picker, since files
+// are managed separately via "+ Files" above.
+function editLesson(lessonId,num,title,visibility){
+  addFilesLessonId=null;editingLessonId=lessonId;
+  document.getElementById('alTitle').textContent='Edit lesson';
+  document.getElementById('alNum').value=num;document.getElementById('alLessonTitle').value=title;
+  document.getElementById('alVis').value=visibility;document.getElementById('alErr').textContent='';
+  document.getElementById('alLessonId').value=lessonId;
+  document.getElementById('alPickerWrap').style.display='none';
+  openModal('addLessonModal');
 }
 
 async function saveLesson(){
@@ -1121,10 +1419,10 @@ async function saveLesson(){
   const title=document.getElementById('alLessonTitle').value.trim();
   const num=document.getElementById('alNum').value;
   const vis=document.getElementById('alVis').value;
-  const fileIds=getPickerSel('alPicker');
   const err=document.getElementById('alErr');
 
   if(addFilesLessonId){
+    const fileIds=getPickerSel('alPicker');
     for(const fid of fileIds){
       await fetch('/api/content/lesson-file-refs',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({lessonId:addFilesLessonId,fileId:fid})});
@@ -1133,6 +1431,16 @@ async function saveLesson(){
   }
 
   if(!title||!num){err.textContent='Number and title required.';return;}
+
+  if(editingLessonId){
+    const res=await fetch(`/api/content/lessons/${editingLessonId}`,{method:'PATCH',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({lessonNumber:parseInt(num),title,visibility:vis})});
+    const d=await res.json();
+    if(d.error){err.textContent=d.error;return;}
+    closeModal('addLessonModal');openCourseDetail(courseId);return;
+  }
+
+  const fileIds=getPickerSel('alPicker');
   const res=await fetch('/api/content/lessons',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({courseId,lessonNumber:parseInt(num),title,visibility:vis,fileIds})});
   const d=await res.json();
@@ -1146,6 +1454,150 @@ async function rmLessonFile(refId){
 }
 async function delLesson(id){if(!confirm('Delete this lesson?'))return;await fetch(`/api/content/lessons/${id}`,{method:'DELETE'});openCourseDetail(curCourseId);}
 async function delCourse(id){if(!confirm('Delete course and all lessons?'))return;await fetch(`/api/content/courses/${id}`,{method:'DELETE'});loadAll();}
+
+// ── Quiz builder (Per Bot 5 follow-on) ──
+// Full-refresh pattern throughout, same as openCourseDetail above — re-fetch
+// and re-render the whole modal body after every mutation rather than trying
+// to patch the DOM in place. Simpler to reason about, and this modal isn't
+// performance-sensitive enough to need anything cleverer.
+async function openQuizModal(lessonId,lessonTitle){
+  document.getElementById('qmLessonId').value=lessonId;
+  document.getElementById('qmTitle').textContent='Quiz — '+lessonTitle;
+  await refreshQuizModal();
+  openModal('quizModal');
+}
+
+async function refreshQuizModal(){
+  const lessonId=document.getElementById('qmLessonId').value;
+  const quiz=await fetch(`/api/content/lessons/${lessonId}/quiz`).then(r=>r.json());
+  const el=document.getElementById('qmBody');
+
+  if(!quiz){
+    document.getElementById('qmQuizId').value='';
+    el.innerHTML=`
+      <div><label>Quiz title</label><input type="text" id="qmNewTitle" placeholder="e.g. Grounding check"/></div>
+      <div><label>Pass threshold %</label><input type="number" id="qmNewThreshold" value="70" min="0" max="100"/></div>
+      <div class="modal-err" id="qmErr"></div>
+      <button class="btn primary" onclick="createQuizForLesson()">Create quiz</button>
+    `;
+    return;
+  }
+
+  document.getElementById('qmQuizId').value=quiz.id;
+  let h=`
+    <div class="modal-row">
+      <div><label>Title</label><input type="text" id="qmEditTitle" value="${escAttr(quiz.title)}"/></div>
+      <div><label>Pass threshold %</label><input type="number" id="qmEditThreshold" value="${quiz.pass_threshold_pct}" min="0" max="100"/></div>
+    </div>
+    <button class="btn sm" onclick="saveQuizMeta()">Save quiz settings</button>
+    <div class="modal-err" id="qmErr"></div>
+    <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:14px 0"/>
+    <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:rgba(255,255,255,0.3);margin-bottom:8px">Questions</div>
+  `;
+
+  quiz.questions.forEach(q=>{
+    h+=`<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:9px;padding:12px 14px;margin-bottom:10px">
+      <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:8px">
+        <input type="text" value="${escAttr(q.question_text)}" id="qtext-${q.id}" style="flex:1"/>
+        <select id="qtype-${q.id}" style="width:130px">
+          <option value="single_choice" ${q.question_type==='single_choice'?'selected':''}>Single choice</option>
+          <option value="multi_choice" ${q.question_type==='multi_choice'?'selected':''}>Multi choice</option>
+          <option value="true_false" ${q.question_type==='true_false'?'selected':''}>True/false</option>
+        </select>
+        <button class="btn sm" onclick="saveQuestion('${q.id}')">Save</button>
+        <button class="btn sm danger" onclick="deleteQuestion('${q.id}')">Delete</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-left:8px">
+        ${q.options.map(o=>`
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="checkbox" ${o.is_correct?'checked':''} id="ocorrect-${o.id}" title="Correct answer"/>
+            <input type="text" value="${escAttr(o.option_text)}" id="otext-${o.id}" style="flex:1;font-size:12px"/>
+            <button class="btn sm" onclick="saveOption('${o.id}')">Save</button>
+            <button class="btn sm danger" onclick="deleteOption('${o.id}')">×</button>
+          </div>
+        `).join('')}
+        <button class="btn sm" onclick="addOption('${q.id}')" style="align-self:flex-start;margin-top:4px">+ Add option</button>
+      </div>
+    </div>`;
+  });
+
+  h+=`<button class="btn primary sm" onclick="addQuestion()">+ Add question</button>
+      <button class="btn danger sm" onclick="deleteWholeQuiz()" style="margin-left:8px">Delete quiz</button>`;
+  el.innerHTML=h;
+}
+
+function escAttr(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+async function createQuizForLesson(){
+  const lessonId=document.getElementById('qmLessonId').value;
+  const title=document.getElementById('qmNewTitle').value.trim();
+  const threshold=parseInt(document.getElementById('qmNewThreshold').value)||70;
+  const err=document.getElementById('qmErr');
+  if(!title){err.textContent='Title required.';return;}
+  const res=await fetch('/api/admin/quizzes',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({lessonId,title,passThresholdPct:threshold})});
+  const d=await res.json();
+  if(d.error){err.textContent=d.error;return;}
+  await refreshQuizModal();
+}
+
+async function saveQuizMeta(){
+  const quizId=document.getElementById('qmQuizId').value;
+  const title=document.getElementById('qmEditTitle').value.trim();
+  const threshold=parseInt(document.getElementById('qmEditThreshold').value)||70;
+  const err=document.getElementById('qmErr');
+  if(!title){err.textContent='Title required.';return;}
+  const res=await fetch(`/api/admin/quizzes/${quizId}`,{method:'PATCH',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({title,passThresholdPct:threshold})});
+  const d=await res.json();
+  if(d.error){err.textContent=d.error;return;}
+  await refreshQuizModal();
+}
+
+async function deleteWholeQuiz(){
+  if(!confirm('Delete this entire quiz, including all questions and options?'))return;
+  const quizId=document.getElementById('qmQuizId').value;
+  await fetch(`/api/admin/quizzes/${quizId}`,{method:'DELETE'});
+  await refreshQuizModal();
+}
+
+async function addQuestion(){
+  const quizId=document.getElementById('qmQuizId').value;
+  await fetch(`/api/admin/quizzes/${quizId}/questions`,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({questionText:'New question',questionType:'single_choice',sortOrder:99})});
+  await refreshQuizModal();
+}
+async function saveQuestion(id){
+  const text=document.getElementById(`qtext-${id}`).value.trim();
+  const type=document.getElementById(`qtype-${id}`).value;
+  if(!text)return;
+  await fetch(`/api/admin/quiz-questions/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({questionText:text,questionType:type,sortOrder:0})});
+  await refreshQuizModal();
+}
+async function deleteQuestion(id){
+  if(!confirm('Delete this question and its options?'))return;
+  await fetch(`/api/admin/quiz-questions/${id}`,{method:'DELETE'});
+  await refreshQuizModal();
+}
+
+async function addOption(questionId){
+  await fetch(`/api/admin/quiz-questions/${questionId}/options`,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({optionText:'New option',isCorrect:false,sortOrder:99})});
+  await refreshQuizModal();
+}
+async function saveOption(id){
+  const text=document.getElementById(`otext-${id}`).value.trim();
+  const correct=document.getElementById(`ocorrect-${id}`).checked;
+  if(!text)return;
+  await fetch(`/api/admin/quiz-options/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({optionText:text,isCorrect:correct,sortOrder:0})});
+  await refreshQuizModal();
+}
+async function deleteOption(id){
+  await fetch(`/api/admin/quiz-options/${id}`,{method:'DELETE'});
+  await refreshQuizModal();
+}
 
 // ── Playlists ──
 function filterPlaylists(){const c=document.getElementById('plCatF').value;renderPlaylists(allPlaylists.filter(p=>!c||p.category_id===c));}

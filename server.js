@@ -1375,6 +1375,159 @@ app.delete('/api/content/categories/:id', auth.requireAuthApi(['admin']), (req, 
 
 app.get('/api/content/library', auth.requireAuthApi(['admin','facilitator']), (req, res) => res.json(db.getLibraryFiles(req.query)));
 
+// ══════════════════════════════════════════════════════════════════════════
+// ── Course instances / Enrolments / Quizzes — admin builder ──
+// Course/lesson CRUD already exists above under /api/content/* with a working
+// UI in admin/content.html — these are the genuinely new pieces (instances,
+// cohort sessions, quizzes) plus the two edit endpoints /api/content/courses
+// and /api/content/lessons were missing (create/delete existed, edit didn't).
+// ══════════════════════════════════════════════════════════════════════════
+
+// ── Course instances ──
+app.get('/api/admin/course-instances', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    if (req.query.courseId) return res.json(db.getInstancesForCourse(req.query.courseId));
+    res.json(db.getAllCourseInstances(req.query));
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/admin/course-instances', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    const { courseId, mode, title, startDate, endDate, capacity, priceCents, stripePriceId, status } = req.body;
+    if (!courseId || !title || !title.trim()) return res.status(400).json({ error: 'courseId and title are required.' });
+    const id = uuidv4();
+    db.createCourseInstance(id, courseId, mode, title.trim(), startDate, endDate, capacity, priceCents, stripePriceId, status);
+    res.json({ id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/admin/course-instances/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    const instance = db.getCourseInstance(req.params.id);
+    if (!instance) return res.status(404).json({ error: 'Not found.' });
+    res.json(instance);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.patch('/api/admin/course-instances/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    const fieldMap = { mode:'mode', title:'title', startDate:'start_date', endDate:'end_date',
+      capacity:'capacity', priceCents:'price_cents', stripePriceId:'stripe_price_id', status:'status' };
+    const fields = {};
+    Object.keys(fieldMap).forEach(k => { if (req.body[k] !== undefined) fields[fieldMap[k]] = req.body[k]; });
+    db.updateCourseInstance(req.params.id, fields);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/admin/course-instances/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  try { db.deleteCourseInstance(req.params.id); res.json({ ok: true }); }
+  catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/admin/course-instances/:id/enrolments', auth.requireAuthApi(['admin']), (req, res) => {
+  try { res.json(db.getEnrolmentsForInstance(req.params.id)); }
+  catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Cohort live sessions ──
+app.get('/api/admin/course-instances/:id/sessions', auth.requireAuthApi(['admin']), (req, res) => {
+  try { res.json(db.getSessionsForInstance(req.params.id)); }
+  catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/admin/course-instances/:id/sessions', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    const { sessionNumber, title, scheduledAt, facilitatorNotes, handout } = req.body;
+    if (!title || !title.trim()) return res.status(400).json({ error: 'Title is required.' });
+    const id = uuidv4();
+    db.addInstanceSession(id, req.params.id, sessionNumber || 1, title.trim(), scheduledAt, facilitatorNotes, handout);
+    res.json({ id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.patch('/api/admin/instance-sessions/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    const fieldMap = { title:'title', scheduledAt:'scheduled_at', facilitatorNotes:'facilitator_notes', handout:'handout' };
+    const fields = {};
+    Object.keys(fieldMap).forEach(k => { if (req.body[k] !== undefined) fields[fieldMap[k]] = req.body[k]; });
+    db.updateInstanceSession(req.params.id, fields);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/admin/instance-sessions/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  try { db.deleteInstanceSession(req.params.id); res.json({ ok: true }); }
+  catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Quizzes ──
+app.post('/api/admin/quizzes', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    const { lessonId, title, passThresholdPct } = req.body;
+    if (!lessonId || !title || !title.trim()) return res.status(400).json({ error: 'lessonId and title are required.' });
+    if (db.getQuizForLesson(lessonId)) return res.status(400).json({ error: 'This lesson already has a quiz — edit it instead.' });
+    const id = uuidv4();
+    db.createQuiz(id, lessonId, title.trim(), passThresholdPct);
+    res.json({ id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/admin/quizzes/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    const quiz = db.getFullQuiz(req.params.id);
+    if (!quiz) return res.status(404).json({ error: 'Not found.' });
+    res.json(quiz);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.patch('/api/admin/quizzes/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    const { title, passThresholdPct } = req.body;
+    if (!title || !title.trim()) return res.status(400).json({ error: 'Title is required.' });
+    db.updateQuiz(req.params.id, title.trim(), passThresholdPct);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/admin/quizzes/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  try { db.deleteQuiz(req.params.id); res.json({ ok: true }); }
+  catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/quizzes/:id/questions', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    const { questionText, questionType, sortOrder } = req.body;
+    if (!questionText || !questionText.trim()) return res.status(400).json({ error: 'Question text is required.' });
+    const id = uuidv4();
+    db.addQuizQuestion(id, req.params.id, questionText.trim(), questionType, sortOrder);
+    res.json({ id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.patch('/api/admin/quiz-questions/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    const { questionText, questionType, sortOrder } = req.body;
+    if (!questionText || !questionText.trim()) return res.status(400).json({ error: 'Question text is required.' });
+    db.updateQuizQuestion(req.params.id, questionText.trim(), questionType, sortOrder);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/admin/quiz-questions/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  try { db.deleteQuizQuestion(req.params.id); res.json({ ok: true }); }
+  catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/quiz-questions/:id/options', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    const { optionText, isCorrect, sortOrder } = req.body;
+    if (!optionText || !optionText.trim()) return res.status(400).json({ error: 'Option text is required.' });
+    const id = uuidv4();
+    db.addQuizOption(id, req.params.id, optionText.trim(), !!isCorrect, sortOrder);
+    res.json({ id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.patch('/api/admin/quiz-options/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    const { optionText, isCorrect, sortOrder } = req.body;
+    if (!optionText || !optionText.trim()) return res.status(400).json({ error: 'Option text is required.' });
+    db.updateQuizOption(req.params.id, optionText.trim(), !!isCorrect, sortOrder);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/admin/quiz-options/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  try { db.deleteQuizOption(req.params.id); res.json({ ok: true }); }
+  catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Facilitator Workspace resource shelf — fixed prep/reference material, not
 // client-specific. Facilitators and Admins only. ──
 app.get('/api/facilitator/resources', auth.requireAuthApi(['admin','facilitator']), (req, res) => {
@@ -1548,6 +1701,16 @@ app.get('/api/content/courses/:id', auth.requireAuthApi(['admin','facilitator'])
   if (!c) return res.status(404).json({ error: 'Not found' });
   res.json(c);
 });
+// Edit — was missing; create and delete existed but there was no way to
+// change a course's title/description/category after the fact.
+app.patch('/api/content/courses/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    const { title, description, categoryId, subcategoryId, guestVisible } = req.body;
+    if (!title || !title.trim()) return res.status(400).json({ error: 'Title is required.' });
+    db.updateCourse(req.params.id, title.trim(), description, categoryId || null, subcategoryId || null, !!guestVisible);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
 app.delete('/api/content/courses/:id', auth.requireAuthApi(['admin']), (req, res) => { db.deleteCourse(req.params.id); res.json({ ok: true }); });
 
 app.get('/api/content/courses/:id/lessons', auth.requireAuthApi(['admin','facilitator']), (req, res) => res.json(db.getLessonsForCourse(req.params.id)));
@@ -1560,7 +1723,23 @@ app.post('/api/content/lessons', auth.requireAuthApi(['admin']), (req, res) => {
   res.json({ id: lessonId });
 });
 app.get('/api/content/lessons/:id/files', auth.requireAuthApi(['admin','facilitator']), (req, res) => res.json(db.getFilesForLesson(req.params.id)));
+// Edit — same gap as courses: create and delete existed, edit didn't.
+app.patch('/api/content/lessons/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    const { lessonNumber, title, description, visibility } = req.body;
+    if (!title || !title.trim()) return res.status(400).json({ error: 'Title is required.' });
+    db.updateLesson(req.params.id, parseInt(lessonNumber) || 1, title.trim(), description, visibility || 'client');
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
 app.delete('/api/content/lessons/:id', auth.requireAuthApi(['admin']), (req, res) => { db.deleteLesson(req.params.id); res.json({ ok: true }); });
+
+// ── Lesson quiz lookup — for the "Quiz" button in the course detail view ──
+app.get('/api/content/lessons/:id/quiz', auth.requireAuthApi(['admin','facilitator']), (req, res) => {
+  try { res.json(db.getQuizForLesson(req.params.id) ? db.getFullQuiz(db.getQuizForLesson(req.params.id).id) : null); }
+  catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 
 app.post('/api/content/lesson-file-refs', auth.requireAuthApi(['admin']), (req, res) => {
   const { lessonId, fileId } = req.body;
