@@ -2924,6 +2924,23 @@ function buildMotdHtml(body, b) {
       </div>`;
 }
 
+// ── Newsletter email markup — shared by the real send and the admin ──
+// test-send endpoint, same principle as buildMotdHtml above. Subject gets
+// its own heading treatment (unlike MOTD, which has no subject at all) since
+// a newsletter is a proper piece of correspondence, not a short stanza.
+function buildNewsletterHtml(subject, body, b) {
+  return `<div style="font-family:Georgia,serif;max-width:560px;margin:0 auto;padding:32px;color:#2a2a2a">
+        <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">${b.name}</div>
+        <h1 style="font-size:22px;font-weight:normal;color:#1a1a1a;margin-bottom:24px">${subject}</h1>
+        <div style="font-size:15px;line-height:1.75;color:#333">${body.replace(/\n/g, '<br/>')}</div>
+        <hr style="border:none;border-top:1px solid #e0e0e0;margin:32px 0 20px"/>
+        <p style="font-size:12px;color:#aaa">
+          You're receiving this because you're part of ${b.name}.
+          <a href="${APP_URL}/account" style="color:#888">Manage what you receive</a>
+        </p>
+      </div>`;
+}
+
 // ── MOTD send — manual/admin override ── Used by the "Send today's message"
 // admin button. Broadcasts IMMEDIATELY to every currently opted-in recipient,
 // ignoring each person's chosen day/hour — this is a deliberate override for
@@ -3159,6 +3176,101 @@ app.post('/api/admin/reminders/test', auth.requireAuthApi(['admin']), async (req
     res.json({ ok: true, to: toEmail });
   } catch (e) {
     console.error('reminder test-send error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Newsletters — admin ── One-off broadcasts to everyone opted into "News
+// and updates", independent of membership tier. Compose → (optionally edit,
+// test) → Send. No queue, no auto-schedule — content differs every time, so
+// this is a deliberate, manual "hit send when it's ready" tool rather than
+// something cron-driven like the MOTD.
+app.get('/api/admin/newsletters', auth.requireAuthApi(['admin']), (req, res) => {
+  try { res.json(db.getAllNewsletters()); }
+  catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/admin/newsletters/recipient-count', auth.requireAuthApi(['admin']), (req, res) => {
+  try { res.json({ count: db.getNewsletterRecipients().length }); }
+  catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/newsletters', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    const { subject, body } = req.body;
+    if (!subject || !subject.trim()) return res.status(400).json({ error: 'Subject is required.' });
+    if (!body || !body.trim()) return res.status(400).json({ error: 'Body is required.' });
+    const id = uuidv4();
+    db.addNewsletter(id, subject.trim(), body.trim());
+    res.json({ id });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch('/api/admin/newsletters/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    const { subject, body } = req.body;
+    if (!subject || !subject.trim()) return res.status(400).json({ error: 'Subject is required.' });
+    if (!body || !body.trim()) return res.status(400).json({ error: 'Body is required.' });
+    const existing = db.getNewsletter(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Newsletter not found.' });
+    if (existing.status !== 'draft') return res.status(400).json({ error: 'Already sent — sent newsletters cannot be edited.' });
+    db.updateNewsletter(req.params.id, subject.trim(), body.trim());
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/admin/newsletters/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    db.deleteNewsletterDraft(req.params.id);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Test send — mirrors the MOTD/reminder pattern: uses whatever's currently
+// in the compose form (saved or not), sent to the admin's own email by
+// default or an override. No DB writes.
+app.post('/api/admin/newsletters/test-send', auth.requireAuthApi(['admin']), async (req, res) => {
+  try {
+    const { subject, body, to } = req.body;
+    if (!subject || !subject.trim()) return res.status(400).json({ error: 'Write a subject first.' });
+    if (!body || !body.trim())       return res.status(400).json({ error: 'Write the body first.' });
+
+    const toEmail = (to && to.trim()) || req.user.email;
+    if (!toEmail) return res.status(400).json({ error: 'No address to send to.' });
+
+    const b = brand();
+    await sendEmail(toEmail, `[TEST] ${subject.trim()}`, buildNewsletterHtml(subject.trim(), body.trim(), b));
+    res.json({ ok: true, to: toEmail });
+  } catch (e) {
+    console.error('newsletter test-send error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// The real send — broadcasts to everyone with pref_email_news=1 right now.
+// Requires the newsletter to already be saved as a draft (so there's a
+// permanent record of exactly what was sent and to how many people), then
+// marks it 'sent' and locks it against further edits.
+app.post('/api/admin/newsletters/:id/send', auth.requireAuthApi(['admin']), async (req, res) => {
+  try {
+    const newsletter = db.getNewsletter(req.params.id);
+    if (!newsletter) return res.status(404).json({ error: 'Newsletter not found.' });
+    if (newsletter.status !== 'draft') return res.status(400).json({ error: 'Already sent.' });
+
+    const recipients = db.getNewsletterRecipients();
+    const b = brand();
+    const html = buildNewsletterHtml(newsletter.subject, newsletter.body, b);
+
+    let sent = 0;
+    for (const user of recipients) {
+      await sendEmail(user.email, newsletter.subject, html);
+      sent++;
+    }
+
+    db.markNewsletterSent(newsletter.id, sent);
+    res.json({ ok: true, sent });
+  } catch (e) {
+    console.error('newsletter send error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });

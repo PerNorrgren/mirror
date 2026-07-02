@@ -221,6 +221,18 @@
     </div>
   </div>
 
+  <!-- ── Newsletters ── -->
+  <div>
+    <div class="section-label">Newsletters</div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Sent &amp; drafts</div>
+        <button class="btn primary" onclick="openNewsletterModal()">+ Write newsletter</button>
+      </div>
+      <div id="newsletterList"><div class="loading">Loading…</div></div>
+    </div>
+  </div>
+
   <!-- ── Legal documents ── -->
   <div>
     <div class="section-label">Legal documents</div>
@@ -305,6 +317,32 @@
     <div class="modal-btns">
       <button class="modal-cancel" onclick="closeModal('legalModal')">Cancel</button>
       <button class="modal-ok" onclick="saveLegalDoc()">Save as draft</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Newsletter compose modal ── -->
+<div class="modal-overlay" id="newsletterModal">
+  <div class="modal">
+    <h3 id="newsletterModalTitle">Write a newsletter</h3>
+    <input type="hidden" id="newsletterEditId"/>
+    <div>
+      <label>Subject</label>
+      <input type="text" id="newsletterSubject" placeholder="e.g. What's new this month"/>
+    </div>
+    <div>
+      <label>Body</label>
+      <textarea id="newsletterBody" style="min-height:220px" placeholder="Write it as it will appear in the email. Plain text — line breaks are kept."></textarea>
+    </div>
+    <div class="modal-err" id="newsletterErr"></div>
+    <div class="test-send-row">
+      <input type="email" id="newsletterTestTo" placeholder="Defaults to your own email — override to test another address"/>
+      <button class="btn sm" id="newsletterTestBtn" onclick="testSendNewsletter()">Send test</button>
+    </div>
+    <div class="feedback" id="newsletterTestFeedback"></div>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeModal('newsletterModal')">Cancel</button>
+      <button class="modal-ok" onclick="saveNewsletter()">Save as draft</button>
     </div>
   </div>
 </div>
@@ -647,6 +685,143 @@
   }
 
   // ════════════════════════════════════
+  // Newsletters
+  // ════════════════════════════════════
+  let newslettersData = [];
+
+  async function loadNewsletters() {
+    const res = await fetch('/api/admin/newsletters');
+    newslettersData = await res.json();
+    renderNewsletterList();
+  }
+
+  function renderNewsletterList() {
+    const el = document.getElementById('newsletterList');
+    if (!newslettersData.length) { el.innerHTML = '<div class="empty">No newsletters yet.</div>'; return; }
+
+    el.innerHTML = newslettersData.map(n => `
+      <div class="doc-row">
+        <div class="doc-title">
+          ${escHtml(n.subject)}
+          <span class="badge ${n.status === 'sent' ? '' : 'badge-draft'}" style="margin-left:6px">${n.status}</span>
+        </div>
+        <div class="doc-consent">${n.status === 'sent' ? `${n.recipient_count || 0} recipients · ${fmtDate(n.sent_at)}` : `Created ${fmtDate(n.created_at)}`}</div>
+        <div class="doc-actions">
+          ${n.status === 'draft' ? `
+            <button class="btn sm" onclick="editNewsletter('${n.id}')">Edit</button>
+            <button class="btn sm primary" onclick="sendNewsletterNow('${n.id}')">Send now</button>
+            <button class="btn sm danger" onclick="deleteNewsletterRow('${n.id}')">Delete</button>
+          ` : `
+            <button class="btn sm" onclick="viewSentNewsletter('${n.id}')">View</button>
+          `}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function openNewsletterModal() {
+    document.getElementById('newsletterModalTitle').textContent = 'Write a newsletter';
+    document.getElementById('newsletterEditId').value = '';
+    document.getElementById('newsletterSubject').value = '';
+    document.getElementById('newsletterBody').value = '';
+    document.getElementById('newsletterErr').textContent = '';
+    document.getElementById('newsletterTestTo').value = '';
+    document.getElementById('newsletterTestFeedback').textContent = '';
+    openModal('newsletterModal');
+  }
+
+  function editNewsletter(id) {
+    const n = newslettersData.find(x => x.id === id);
+    if (!n) return;
+    document.getElementById('newsletterModalTitle').textContent = 'Edit newsletter';
+    document.getElementById('newsletterEditId').value = id;
+    document.getElementById('newsletterSubject').value = n.subject;
+    document.getElementById('newsletterBody').value = n.body;
+    document.getElementById('newsletterErr').textContent = '';
+    document.getElementById('newsletterTestTo').value = '';
+    document.getElementById('newsletterTestFeedback').textContent = '';
+    openModal('newsletterModal');
+  }
+
+  function viewSentNewsletter(id) {
+    const n = newslettersData.find(x => x.id === id);
+    if (!n) return;
+    alert(`${n.subject}\n\n${n.body}`);
+  }
+
+  async function saveNewsletter() {
+    const id      = document.getElementById('newsletterEditId').value;
+    const subject = document.getElementById('newsletterSubject').value.trim();
+    const body    = document.getElementById('newsletterBody').value.trim();
+    const err     = document.getElementById('newsletterErr');
+    if (!subject) { err.textContent = 'Please write a subject.'; return; }
+    if (!body)    { err.textContent = 'Please write the body.'; return; }
+
+    let res;
+    if (id) {
+      res = await fetch(`/api/admin/newsletters/${id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ subject, body }) });
+    } else {
+      res = await fetch('/api/admin/newsletters', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ subject, body }) });
+    }
+    const data = await res.json();
+    if (data.id || data.ok) { closeModal('newsletterModal'); loadNewsletters(); }
+    else err.textContent = data.error || 'Could not save.';
+  }
+
+  async function testSendNewsletter() {
+    const subject = document.getElementById('newsletterSubject').value.trim();
+    const body    = document.getElementById('newsletterBody').value.trim();
+    const to      = document.getElementById('newsletterTestTo').value.trim();
+    const fb      = document.getElementById('newsletterTestFeedback');
+    const btn     = document.getElementById('newsletterTestBtn');
+
+    if (!subject) { fb.textContent = 'Write a subject first.'; fb.className = 'feedback err'; return; }
+    if (!body)    { fb.textContent = 'Write the body first.';  fb.className = 'feedback err'; return; }
+
+    btn.disabled = true; btn.textContent = 'Sending…';
+    fb.textContent = ''; fb.className = 'feedback';
+
+    try {
+      const res  = await fetch('/api/admin/newsletters/test-send', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ subject, body, to: to || undefined })
+      });
+      const data = await res.json();
+      if (data.ok) { fb.textContent = `Sent to ${data.to}`; fb.className = 'feedback ok'; }
+      else { fb.textContent = data.error || 'Could not send test.'; fb.className = 'feedback err'; }
+    } catch(e) {
+      fb.textContent = 'Network error — could not send test.'; fb.className = 'feedback err';
+    } finally {
+      btn.disabled = false; btn.textContent = 'Send test';
+    }
+  }
+
+  async function sendNewsletterNow(id) {
+    const n = newslettersData.find(x => x.id === id);
+    if (!n) return;
+
+    let countMsg = 'everyone opted into News and updates';
+    try {
+      const cRes = await fetch('/api/admin/newsletters/recipient-count');
+      const cData = await cRes.json();
+      if (typeof cData.count === 'number') countMsg = `${cData.count} recipient${cData.count === 1 ? '' : 's'}`;
+    } catch(e) { /* fall back to generic wording */ }
+
+    if (!confirm(`Send "${n.subject}" now to ${countMsg}? This cannot be undone.`)) return;
+
+    const res  = await fetch(`/api/admin/newsletters/${id}/send`, { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) { alert(`Sent to ${data.sent} recipient${data.sent === 1 ? '' : 's'}.`); loadNewsletters(); }
+    else alert(data.error || 'Could not send.');
+  }
+
+  async function deleteNewsletterRow(id) {
+    if (!confirm('Delete this draft? This cannot be undone.')) return;
+    await fetch(`/api/admin/newsletters/${id}`, { method: 'DELETE' });
+    loadNewsletters();
+  }
+
+  // ════════════════════════════════════
   // Legal documents
   // ════════════════════════════════════
   async function loadLegal() {
@@ -970,6 +1145,7 @@
     loadLegal();
     loadPlans();
     loadReminderConfig();
+    loadNewsletters();
   });
 </script>
 </body>

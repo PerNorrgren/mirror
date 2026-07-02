@@ -451,6 +451,22 @@ async function getDb() {
     created_at TEXT DEFAULT (datetime('now'))
   )`);
 
+  // ── Newsletters ── One-off broadcasts to everyone opted into "News and
+  // updates" (pref_email_news), regardless of membership tier — distinct
+  // from messages_of_the_day, which is a rotating queue of short daily
+  // stanzas. A newsletter has a subject line and is manually composed and
+  // sent each time (no queue, no auto-advance) since content differs every
+  // send rather than drawing from a pre-written pool.
+  db.run(`CREATE TABLE IF NOT EXISTS newsletters (
+    id TEXT PRIMARY KEY,
+    subject TEXT NOT NULL,
+    body TEXT NOT NULL,
+    status TEXT DEFAULT 'draft',
+    recipient_count INTEGER,
+    sent_at TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+
   // ── Legal documents ──
   db.run(`CREATE TABLE IF NOT EXISTS legal_documents (
     id TEXT PRIMARY KEY,
@@ -1819,6 +1835,37 @@ function markMotdSentForUser(userId, todayStr) {
   getDbSync().run(`UPDATE users SET motd_last_sent_date=? WHERE id=?`, [todayStr, userId]);
   save();
 }
+
+// ── Newsletters ── One-off broadcasts, distinct from the MOTD queue — see
+// table comment above for why.
+function addNewsletter(id, subject, body) {
+  getDbSync().run(
+    `INSERT INTO newsletters (id,subject,body,status) VALUES (?,?,?,'draft')`,
+    [id, subject, body]
+  );
+  save();
+}
+function getNewsletter(id) { return queryOne('SELECT * FROM newsletters WHERE id=?', [id]); }
+function getAllNewsletters() { return queryAll('SELECT * FROM newsletters ORDER BY created_at DESC'); }
+function updateNewsletter(id, subject, body) {
+  getDbSync().run("UPDATE newsletters SET subject=?, body=? WHERE id=? AND status='draft'", [subject, body, id]);
+  save();
+}
+function deleteNewsletterDraft(id) {
+  getDbSync().run("DELETE FROM newsletters WHERE id=? AND status='draft'", [id]);
+  save();
+}
+function markNewsletterSent(id, recipientCount) {
+  getDbSync().run("UPDATE newsletters SET status='sent', sent_at=datetime('now'), recipient_count=? WHERE id=?", [recipientCount, id]);
+  save();
+}
+// Everyone opted into "News and updates" — independent of membership tier,
+// deliberately not filtered by member_tier the way content visibility is
+// elsewhere in the app.
+function getNewsletterRecipients() {
+  return queryAll(`SELECT id, name, email FROM users WHERE pref_email_news=1 AND email IS NOT NULL AND archived=0`);
+}
+
 // Get users who haven't been active in the last N days (for reminder emails).
 // Deduped: skips anyone reminded in the last 7 days so a persistently inactive
 // user gets nudged weekly, not every single day the cron job runs.
@@ -2222,6 +2269,7 @@ module.exports = {
   addMotd, getMotd, getAllMotd, approveMotd, updateMotd, deleteMotd,
   markMotdSent, countApprovedMotd, getNextMotdToSend, getMotdRecipients,
   getActiveMotdForDate, getStaleActiveMotd, activateMotd, getMotdNotificationCandidates, markMotdSentForUser,
+  addNewsletter, getNewsletter, getAllNewsletters, updateNewsletter, deleteNewsletterDraft, markNewsletterSent, getNewsletterRecipients,
   // Reminders
   getInactiveUsers,
   markReminderSent,
