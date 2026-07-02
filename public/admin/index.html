@@ -617,6 +617,29 @@
     try { return new RegExp('^' + escaped + '$').test(str) || str.includes(pattern.replace(/\*/g,'').replace(/\?/g,'')); }
     catch { return str.includes(pattern); }
   }
+  // Plain-text HTML escaping — for values rendered inside element content
+  // (e.g. <div>${escHtml(u.name)}</div>). Names/emails in these tables come
+  // from self-registration and CSV bulk import — both untrusted input —
+  // so this isn't precautionary, it closes a real stored-XSS path.
+  function escHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  // For values embedded inside an onclick="...'value'..." attribute — a
+  // nested context (HTML attribute containing a JS string literal), so it
+  // needs both escapes: backslash/quote for the JS string, then the result
+  // HTML-attribute-escaped so a stray " can't break out of the attribute
+  // itself. The old pattern here only did the first half, which stopped
+  // breaking the JS string but did nothing to stop a name like
+  // foo" onmouseover="... from injecting a whole new attribute.
+  function escJsAttr(s) {
+    return String(s == null ? '' : s)
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'")
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
   function matchesSearch(item, query, fields) {
     if (!query) return true;
     return fields.some(f => wildcardMatch(item[f] || '', query));
@@ -997,13 +1020,13 @@
       list.map(c => `
         <div class="table-row ${c.archived?'archived':''}">
           <div class="col-cb"><input class="row-cb" type="checkbox" value="${c.id}" onchange="clientSel.toggle('${c.id}',this.checked)"/></div>
-          <div class="col-name">${c.name}</div>
-          <div class="col-email">${c.email||'<span style="color:rgba(255,255,255,0.2)">No login</span>'}</div>
+          <div class="col-name">${escHtml(c.name)}</div>
+          <div class="col-email">${c.email ? escHtml(c.email) : '<span style="color:rgba(255,255,255,0.2)">No login</span>'}</div>
           <div class="col-level">
             <span class="status-badge ${c.archived?'status-archived':'status-active'}">${c.archived?'Archived':'Active'}</span>
             ${(c.member_tier||0)>=1?'<span class="status-badge status-active" style="margin-left:4px">Member</span>':''}
           </div>
-          <div class="col-fac">${c.facilitator_name||'Unassigned'}</div>
+          <div class="col-fac">${escHtml(c.facilitator_name)||'Unassigned'}</div>
         </div>`).join('');
   }
   function clientSort(col) { setSort('client', col); renderClients(); }
@@ -1115,13 +1138,13 @@
       list.map(u => `
         <div class="table-row">
           <div class="col-cb"><input class="row-cb" type="checkbox" value="${u.id}" onchange="memberSel.toggle('${u.id}',this.checked)"/></div>
-          <div class="col-name">${u.name}</div>
-          <div class="col-email">${u.email||'—'}</div>
+          <div class="col-name">${escHtml(u.name)}</div>
+          <div class="col-email">${u.email ? escHtml(u.email) : '—'}</div>
           <div class="col-level">
             <span class="status-badge status-active">Member</span>
             ${u.is_client?'<span class="status-badge status-active" style="margin-left:4px">Client</span>':''}
           </div>
-          <div class="col-fac">${u.facilitator_name||'—'}</div>
+          <div class="col-fac">${escHtml(u.facilitator_name)||'—'}</div>
         </div>`).join('');
   }
   function memberSort(col) { setSort('member', col); renderMembers(); }
@@ -1174,14 +1197,14 @@
       list.map(u=>`
         <div class="table-row">
           <div class="col-cb"><input class="row-cb" type="checkbox" value="${u.id}" onchange="userSel.toggle('${u.id}',this.checked)"/></div>
-          <div class="col-name">${u.name}</div>
-          <div class="col-email">${u.email||'—'}</div>
+          <div class="col-name">${escHtml(u.name)}</div>
+          <div class="col-email">${u.email ? escHtml(u.email) : '—'}</div>
           <div class="col-level">
             <span class="status-badge ${(u.member_tier||0)>=1?'status-active':'status-archived'}">${(u.member_tier||0)>=1?'Member':'Explorer'}</span>
             ${u.is_client?'<span class="status-badge status-active" style="margin-left:4px">Client</span>':''}
-            ${(u.member_tier||0)>=1?`<button class="btn sm" style="margin-left:6px" onclick="openExpiryModal('${u.id}','${(u.name||'').replace(/'/g,"\\'")}','${u.member_expires_at||''}')">${u.member_expires_at?'Expires '+u.member_expires_at:'Set expiry'}</button>`:''}
+            ${(u.member_tier||0)>=1?`<button class="btn sm" style="margin-left:6px" onclick="openExpiryModal('${u.id}','${escJsAttr(u.name)}','${u.member_expires_at||''}')">${u.member_expires_at?'Expires '+escHtml(u.member_expires_at):'Set expiry'}</button>`:''}
           </div>
-          <div class="col-fac">${u.facilitator_name||'—'}</div>
+          <div class="col-fac">${escHtml(u.facilitator_name)||'—'}</div>
         </div>`).join('');
   }
   function userSort(col) { setSort('user',col); renderUsers(); }
@@ -1269,18 +1292,18 @@
       list.map(u => `
         <div class="table-row">
           <div class="col-cb"><input class="row-cb" type="checkbox" value="${u.id}" onchange="nlContactSel.toggle('${u.id}',this.checked)"/></div>
-          <div class="col-name">${u.name}</div>
-          <div class="col-email">${u.email||'—'}</div>
+          <div class="col-name">${escHtml(u.name)}</div>
+          <div class="col-email">${u.email ? escHtml(u.email) : '—'}</div>
           <div class="col-created">${(u.created_at||'').slice(0,10)}</div>
           <div class="col-actions">
-            <select class="row-move-select" onchange="moveNlContact('${u.id}','${(u.name||'').replace(/'/g,"\\'")}',this.value);this.selectedIndex=0;">
+            <select class="row-move-select" onchange="moveNlContact('${u.id}','${escJsAttr(u.name)}',this.value);this.selectedIndex=0;">
               <option value="">Move to…</option>
               <option value="explorer">Explorer</option>
               <option value="1">Member 1</option>
               <option value="2">Member 2</option>
               <option value="3">Member 3</option>
             </select>
-            <button class="btn sm danger" onclick="deleteNlContact('${u.id}','${(u.name||'').replace(/'/g,"\\'")}')">Delete</button>
+            <button class="btn sm danger" onclick="deleteNlContact('${u.id}','${escJsAttr(u.name)}')">Delete</button>
           </div>
         </div>`).join('');
   }
