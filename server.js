@@ -2789,6 +2789,21 @@ app.get('/api/admin/motd', auth.requireAuthApi(['admin']), (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Message of the day — client archive ── Every stanza that's ever gone
+// out, kept as a browsable resource (the "Poems" tab) — not a per-user
+// delivery log, just the shared growing collection, newest first. Signed-in
+// users only; the content itself isn't sensitive, but this keeps it inside
+// the same access model as the rest of the practice space rather than
+// exposing it as a fully public feed.
+app.get('/api/motd/archive', auth.requireAuthApi(['client']), (req, res) => {
+  try {
+    const sent = db.getAllMotd('sent')
+      .map(m => ({ id: m.id, body: m.body, sent_at: m.sent_at }))
+      .sort((a, b) => new Date(b.sent_at) - new Date(a.sent_at));
+    res.json(sent);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/api/admin/motd', auth.requireAuthApi(['admin']), (req, res) => {
   try {
     const { body, scheduledDate } = req.body;

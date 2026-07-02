@@ -184,11 +184,20 @@
     .pl-create-btn { margin:8px 18px; padding:7px 14px; border-radius:8px; border:1px solid rgba(180,230,200,0.2); background:none; color:rgba(180,230,200,0.5); font-size:11px; letter-spacing:0.1em; text-transform:uppercase; cursor:pointer; font-family:'Georgia',serif; transition:all 0.2s; width:calc(100% - 36px); }
     .pl-create-btn:hover { background:rgba(180,230,200,0.07); color:rgba(180,230,200,0.8); }
 
-    /* Voice / Config */
-    .config-view { display:none; flex-direction:column; overflow:hidden; }
-    .config-view.visible { display:flex; }
-    .config-scroll { overflow-y:auto; flex:1; padding:20px 20px 24px; max-height:calc(var(--vh,1vh)*90 - 180px); min-height:0; }
-    .config-label { font-size:10px; letter-spacing:0.18em; text-transform:uppercase; color:rgba(255,255,255,0.3); margin-bottom:12px; display:block; }
+    /* Poems — the daily message archive, five-line stanzas, read aloud */
+    .poems-view { display:none; flex-direction:column; overflow:hidden; }
+    .poems-view.visible { display:flex; }
+    .poems-scroll { overflow-y:auto; flex:1; padding:14px 18px; max-height:calc(var(--vh,1vh)*90 - 180px); min-height:0; }
+    .poems-scroll::-webkit-scrollbar { width:3px; }
+    .poems-scroll::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.1); border-radius:2px; }
+    .poem-card { display:flex; align-items:flex-start; gap:12px; padding:16px 15px; margin-bottom:9px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); border-radius:13px; }
+    .poem-lines { flex:1; min-width:0; font-size:14px; line-height:1.65; color:rgba(255,255,255,0.8); white-space:pre-line; }
+    .poem-date { font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:rgba(255,255,255,0.25); margin-top:10px; }
+    .poem-play-btn { flex-shrink:0; width:36px; height:36px; border-radius:50%; border:1px solid rgba(180,230,200,0.3); background:rgba(180,230,200,0.08); color:rgba(180,230,200,0.85); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:14px; transition:all 0.2s; }
+    .poem-play-btn:hover { background:rgba(180,230,200,0.16); }
+    .poem-play-btn.playing { background:rgba(180,230,200,0.22); border-color:rgba(180,230,200,0.5); }
+    .poem-play-btn.loading { opacity:0.5; cursor:wait; }
+    .no-poems { text-align:center; padding:32px 20px; color:rgba(255,255,255,0.3); font-size:14px; font-style:italic; }
     .voice-list { display:flex; flex-direction:column; gap:8px; }
     .voice-row { display:flex; align-items:center; gap:10px; padding:10px 13px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); border-radius:10px; cursor:pointer; transition:all 0.2s; }
     .voice-row:hover { background:rgba(255,255,255,0.08); }
@@ -304,7 +313,7 @@
       <button class="tab"        id="tabSessions"  onclick="switchTab('sessions')">Sessions</button>
       <button class="tab"        id="tabHistory"   onclick="switchTab('history')">History</button>
       <button class="tab"        id="tabContent"   onclick="switchTab('content')">Content</button>
-      <button class="tab"        id="tabConfig"    onclick="switchTab('config')">Voice</button>
+      <button class="tab"        id="tabPoems"     onclick="switchTab('poems')">Poems</button>
     </div>
 
     <!-- Talk -->
@@ -348,10 +357,10 @@
       <div class="history-scroll" id="historyList"><div class="no-history">No history yet.</div></div>
     </div>
 
-    <!-- Voice -->
-    <div class="config-view" id="configView">
-      <div class="config-scroll">
-        <span class="config-label">This feature is coming soon — Per's cloned voice is active.</span>
+    <!-- Poems -->
+    <div class="poems-view" id="poemsView">
+      <div class="poems-scroll" id="poemsScroll">
+        <div class="no-poems">Loading…</div>
       </div>
     </div>
 
@@ -479,7 +488,7 @@
 
   // ── Tabs ──
   function switchTab(tab) {
-    ['talk','practices','courses','sessions','history','content','config'].forEach(t => {
+    ['talk','practices','courses','sessions','history','content','poems'].forEach(t => {
       document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1)).classList.toggle('active', t === tab);
     });
     document.getElementById('talkView').style.display      = tab === 'talk' ? '' : 'none';
@@ -488,12 +497,121 @@
     document.getElementById('sessionsView').classList.toggle('visible',  tab === 'sessions');
     document.getElementById('historyView').classList.toggle('visible',   tab === 'history');
     document.getElementById('contentView').classList.toggle('visible',   tab === 'content');
-    document.getElementById('configView').classList.toggle('visible',    tab === 'config');
+    document.getElementById('poemsView').classList.toggle('visible',     tab === 'poems');
     if (tab === 'practices') loadPractices();
     if (tab === 'courses')   { closeCourseDetail(); loadCourses(); }
     if (tab === 'sessions')  loadSessions();
     if (tab === 'history')   loadHistory();
     if (tab === 'content')   loadContent();
+    if (tab === 'poems')     loadPoems();
+  }
+
+  // ── Poems — the daily message archive, read aloud on demand ──
+  let poemsData = [];
+  let poemAudio = null;
+  let poemPlayingId = null;
+
+  function escHtmlPoem(s) {
+    return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function fmtPoemDate(s) {
+    if (!s) return '';
+    try { return new Date(s.replace(' ','T')+'Z').toLocaleDateString(undefined,{day:'numeric',month:'long',year:'numeric'}); }
+    catch { return s.slice(0,10); }
+  }
+
+  async function loadPoems() {
+    const scroll = document.getElementById('poemsScroll');
+    try {
+      const res = await fetch('/api/motd/archive');
+      poemsData = await res.json();
+      renderPoems();
+    } catch(e) {
+      scroll.innerHTML = '<div class="no-poems">Could not load the archive. Please try again.</div>';
+    }
+  }
+
+  function renderPoems() {
+    const scroll = document.getElementById('poemsScroll');
+    if (!poemsData.length) {
+      scroll.innerHTML = '<div class="no-poems">Nothing here yet — the first daily message will appear once it\'s sent.</div>';
+      return;
+    }
+    scroll.innerHTML = poemsData.map(p => `
+      <div class="poem-card">
+        <div>
+          <div class="poem-lines">${escHtmlPoem(p.body)}</div>
+          <div class="poem-date">${fmtPoemDate(p.sent_at)}</div>
+        </div>
+        <button class="poem-play-btn" id="poemBtn-${p.id}" onclick="playPoem('${p.id}')">▶</button>
+      </div>
+    `).join('');
+  }
+
+  async function playPoem(id) {
+    const poem = poemsData.find(p => p.id === id);
+    if (!poem) return;
+    const btn = document.getElementById(`poemBtn-${id}`);
+
+    // Tapping the currently-playing poem again pauses it
+    if (poemPlayingId === id && poemAudio) {
+      poemAudio.pause();
+      poemAudio = null;
+      poemPlayingId = null;
+      btn.textContent = '▶';
+      btn.classList.remove('playing');
+      return;
+    }
+
+    // Stop whatever else was playing first — one poem at a time
+    if (poemAudio) {
+      poemAudio.pause();
+      poemAudio = null;
+      const prevBtn = document.getElementById(`poemBtn-${poemPlayingId}`);
+      if (prevBtn) { prevBtn.textContent = '▶'; prevBtn.classList.remove('playing'); }
+      poemPlayingId = null;
+    }
+
+    btn.textContent = '…';
+    btn.classList.add('loading');
+
+    try {
+      const r = await fetch('/api/speak', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ text: poem.body })
+      });
+      if (!r.ok) throw new Error('speak failed');
+
+      const buffer = await r.arrayBuffer();
+      const blob   = new Blob([buffer], { type: 'audio/mpeg' });
+      const url    = URL.createObjectURL(blob);
+
+      poemAudio = new Audio(url);
+      poemPlayingId = id;
+      btn.classList.remove('loading');
+      btn.classList.add('playing');
+      btn.textContent = '⏸';
+
+      poemAudio.onended = () => {
+        URL.revokeObjectURL(url);
+        poemAudio = null;
+        poemPlayingId = null;
+        btn.textContent = '▶';
+        btn.classList.remove('playing');
+      };
+      poemAudio.onerror = () => {
+        URL.revokeObjectURL(url);
+        poemAudio = null;
+        poemPlayingId = null;
+        btn.textContent = '▶';
+        btn.classList.remove('playing', 'loading');
+      };
+      poemAudio.play();
+    } catch(e) {
+      btn.textContent = '▶';
+      btn.classList.remove('loading', 'playing');
+    }
   }
 
   // ── Auth ──

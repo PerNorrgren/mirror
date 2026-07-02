@@ -217,12 +217,28 @@ TWO STANDING RULES, NON-NEGOTIABLE:
 1. CULTURALLY UNIVERSAL. The audience is worldwide, not any single country. Never reference a specific nation's weather, seasons framed for one hemisphere only, national holidays (Bonfire Night, Thanksgiving, etc.), or idiom tied to one culture. If you reference a season, keep it loose enough to work in either hemisphere, or avoid seasonal framing entirely and anchor in the body instead.
 2. RELIGIOUSLY AND SPIRITUALLY NEUTRAL. Many readers are non-religious or hold a different faith from one another. Never assume, reference, or imply any specific religious or spiritual framework — no "soul", "blessing", "grace", "universe [as a benevolent force]", prayer, or faith-specific language of any kind. Kindness to self is framed entirely in terms of the body and the nervous system, not belief.
 
-LENGTH: each message is 25–60 words. One to three sentences. No signature, no greeting, no sign-off — just the message body, exactly as it will appear in the email.
+FORM: each message is a five-line stanza — five short lines, not a paragraph. This borrows the shape of a classical ode (arrival, containment, a turn, a landing) without borrowing its machinery: no counted meter, no forced rhyme scheme. Think closer to Mary Oliver than to formal verse. A few things that matter more than any rule:
+- Break lines where a breath or a beat would naturally fall, not just where the sentence happens to end.
+- The last line should feel like an arrival, not a summary — it lands, it doesn't explain.
+- Rhyme is welcome if it happens naturally; never force it. A stray near-rhyme is better than a strained exact one.
+- Each line stays short — a handful of words, rarely more than eight or nine.
+- The whole stanza still obeys every voice rule above: plain words, second person, inside-out language, no clinical terms, no evangelical promises.
+- Write the five lines separated by literal newline characters (\n) within the JSON string — not five separate sentences run together.
+
+LENGTH: five lines, each short. Total roughly 20–45 words across the whole stanza. No title, no signature, no greeting — just the five lines, exactly as they will appear in the email.
 
 THE SIGNAL RANGE — cover a genuine spread, don't default back to feet-and-breath every time:
 ${MOTD_SIGNAL_LIST}
 
-OUTPUT FORMAT: respond with ONLY a JSON array of strings, one per message, in the exact order requested. No preamble, no markdown fences, no commentary — just the raw JSON array.`;
+EXAMPLES (approved as exactly the right form and tone — match this level, not just this shape):
+
+"One breath in, small and slow,\nthen a second on top, thinner still.\nLet it go longer than it came.\nSomewhere low, the shoulders drop.\nNothing more was asked of you today."
+
+"Not the loud thing, not the proud thing —\njust the true one, said out plain:\nI stayed. I answered. I got up.\nSmall, but yours, and no one else's.\nLet that be enough for tonight."
+
+"If the door slammed and you jumped too far,\nthat's not you being dramatic —\nthat's a brake still learning its own strength.\nTurn your head, slow, and back again.\nIt builds the way anything true does: slowly."
+
+OUTPUT FORMAT: respond with ONLY a JSON array of strings, one per message, in the exact order requested. Each string contains its five lines joined by \n. No preamble, no markdown fences, no commentary — just the raw JSON array.`;
 
 module.exports = {
   MOTD_GENERATION_PROMPT,
