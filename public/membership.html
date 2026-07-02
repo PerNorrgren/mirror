@@ -153,14 +153,19 @@
   // ── State ──
   let selectedBilling = 'monthly';
   let account = null;
+  let paymentsEnabled = true; // safe default until /api/config responds
   let checkoutInFlight = false;
 
   // ── Load account ──
   async function init() {
     try {
+      const configRes = await fetch('/api/config');
+      try { const cfg = await configRes.json(); paymentsEnabled = cfg.paymentsEnabled !== false; } catch(e) { /* keep default */ }
+
       const res = await fetch('/api/account');
       if (res.status === 401) {
-        // Not logged in — show pricing anyway, redirect to register on click
+        // Not logged in — show pricing anyway (if enabled), redirect to register on click
+        renderStatus(null);
         renderPricing(null);
         return;
       }
@@ -183,7 +188,10 @@
       document.getElementById('backLink').href = '/account';
       document.getElementById('backLink').querySelector('svg').nextSibling.textContent = ' My account';
     } else {
-      bar.innerHTML = `<span class="status-dot" style="background:rgba(255,255,255,0.2)"></span>You are exploring as a free member. Upgrade to unlock everything.`;
+      const msg = paymentsEnabled
+        ? 'You are exploring as a free member. Upgrade to unlock everything.'
+        : 'You are exploring as a free member.';
+      bar.innerHTML = `<span class="status-dot" style="background:rgba(255,255,255,0.2)"></span>${msg}`;
     }
   }
 
@@ -200,6 +208,21 @@
           <a href="/account" style="display:inline-block;margin:0 auto;padding:10px 24px;border-radius:8px;border:1px solid rgba(180,230,200,0.3);background:rgba(180,230,200,0.08);color:rgba(180,230,200,0.75);font-size:12px;letter-spacing:0.1em;text-transform:uppercase;text-decoration:none">Go to my account</a>
         </div>
         ${reassuranceHtml()}
+      `;
+      return;
+    }
+
+    // Payments turned off for this deployment (setup wizard toggle) —
+    // showing pricing and a Stripe checkout button here would either be
+    // misleading or actively broken, depending on whether Stripe keys are
+    // even configured. Show a plain, honest message instead.
+    if (!paymentsEnabled) {
+      content.innerHTML = `
+        <div class="member-card">
+          <div class="member-card-title">Membership isn't open yet</div>
+          <div class="member-card-desc">Full membership isn't available for purchase right now. Everything openly available is still yours to explore.</div>
+          <a href="${a ? '/client/' : '/'}" style="display:inline-block;margin:0 auto;padding:10px 24px;border-radius:8px;border:1px solid rgba(180,230,200,0.3);background:rgba(180,230,200,0.08);color:rgba(180,230,200,0.75);font-size:12px;letter-spacing:0.1em;text-transform:uppercase;text-decoration:none">Back to practice space</a>
+        </div>
       `;
       return;
     }

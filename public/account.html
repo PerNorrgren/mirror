@@ -451,11 +451,18 @@
     });
   })();
 
+  // ── Load account ──
+  let paymentsEnabled = true; // safe default until /api/config responds
+
   async function loadAccount() {
     try {
-      const res  = await fetch('/api/account');
-      if (res.status === 401) { window.location.href = '/login'; return; }
-      account = await res.json();
+      const [accountRes, configRes] = await Promise.all([
+        fetch('/api/account'),
+        fetch('/api/config'),
+      ]);
+      if (accountRes.status === 401) { window.location.href = '/login'; return; }
+      account = await accountRes.json();
+      try { const cfg = await configRes.json(); paymentsEnabled = cfg.paymentsEnabled !== false; } catch(e) { /* keep default */ }
       populate(account);
     } catch(e) {
       showMsg('profileMsg', 'Could not load account. Please refresh.', 'err');
@@ -536,7 +543,7 @@
     }
 
     document.getElementById('membershipStatus').innerHTML = html;
-    document.getElementById('upgradeSection').style.display = tier === 0 ? 'block' : 'none';
+    document.getElementById('upgradeSection').style.display = (tier === 0 && paymentsEnabled) ? 'block' : 'none';
   }
 
   // ── Facilitator access (Per Bot 5, item 11) ──
