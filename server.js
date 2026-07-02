@@ -1,3 +1,7 @@
+// ── BUILD MARKER: nl-contacts-v1 — 2026-07-02 19:40 UTC ──
+// (Delete this comment any time — it's just here so you can confirm the
+// copy you grabbed from Downloads is actually this version, not a stale one.)
+
 const express    = require('express');
 const http       = require('http');
 const WebSocket  = require('ws');
