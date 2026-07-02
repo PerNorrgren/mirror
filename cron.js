@@ -14,7 +14,7 @@
 
 const cron = require('node-cron');
 
-function startCronJobs({ db, sendScheduledMotd, emailTrialDay3, emailTrialDay10, emailTrialDay14, emailInactivityReminder }) {
+function startCronJobs({ db, sendScheduledMotd, emailTrialDay3, emailTrialDay10, emailTrialDay14, sendInactivityReminders }) {
   // ── Scheduled MOTD send — hourly, on the hour ──
   // Each run checks which users' motd_days/motd_hour match right now and
   // sends only to them. See sendScheduledMotd() in server.js for the full
@@ -56,14 +56,13 @@ function startCronJobs({ db, sendScheduledMotd, emailTrialDay3, emailTrialDay10,
   });
 
   // ── Inactivity reminders — 07:20 UTC ──
+  // Threshold and subject are config-driven (app_config.reminder_days /
+  // reminder_subject, editable in the admin comms panel) — see
+  // sendInactivityReminders() in server.js.
   cron.schedule('20 7 * * *', async () => {
     try {
-      const inactive = db.getInactiveUsers(4);
-      for (const user of inactive) {
-        await emailInactivityReminder(user);
-        db.markReminderSent(user.id);
-      }
-      console.log(`[cron] inactivity reminders sent: ${inactive.length}`);
+      const result = await sendInactivityReminders();
+      console.log(`[cron] inactivity reminders: sent=${result.sent} threshold=${result.thresholdDays}d`);
     } catch (e) {
       console.error('[cron] inactivity reminders failed:', e.message);
     }

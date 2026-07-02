@@ -537,6 +537,11 @@ async function getDb() {
     "ALTER TABLE users ADD COLUMN motd_days TEXT DEFAULT '0,1,2,3,4,5,6'",
     "ALTER TABLE users ADD COLUMN motd_hour INTEGER DEFAULT 9",
     "ALTER TABLE users ADD COLUMN motd_last_sent_date TEXT",
+    // Inactivity reminder settings — previously hardcoded (4 days, fixed
+    // subject line) even though the admin panel showed editable fields for
+    // both; those fields never actually persisted anywhere. Real now.
+    "ALTER TABLE app_config ADD COLUMN reminder_days INTEGER DEFAULT 4",
+    "ALTER TABLE app_config ADD COLUMN reminder_subject TEXT DEFAULT 'Whenever you''re ready'",
     // Optional in general, but becomes required the moment a user wants MOTD
     // email or SMS on — see the PATCH /api/account validation in server.js.
     // motd_hour is interpreted IN THIS TIMEZONE once it's set, not UTC.
@@ -1880,7 +1885,7 @@ function getUserByStripeSubscription(stripeSubscriptionId) {
 function getAppConfig() { return queryOne(`SELECT * FROM app_config WHERE id='default'`); }
 
 function updateAppConfig(fields) {
-  const allowed = ['brand_name','tagline','primary_color','logo_url','contact_email','currency','legal_entity_name','legal_jurisdiction','payments_enabled','setup_completed'];
+  const allowed = ['brand_name','tagline','primary_color','logo_url','contact_email','currency','legal_entity_name','legal_jurisdiction','payments_enabled','setup_completed','reminder_days','reminder_subject'];
   const sets = Object.keys(fields).filter(k => allowed.includes(k));
   if (!sets.length) return;
   getDbSync().run(

@@ -210,10 +210,11 @@
       <div class="config-row" style="border-bottom:none">
         <div>
           <div class="config-label">Send test reminder</div>
-          <div class="config-desc">Sends a reminder email to you only — no real users contacted</div>
+          <div class="config-desc">Sends using the subject above (even if not saved yet) — defaults to your own email, or type another address</div>
         </div>
         <div class="config-val">
-          <button class="btn sm" onclick="sendTestReminder()">Send test</button>
+          <input class="inline-input" type="email" id="reminderTestTo" placeholder="Defaults to your email" style="width:200px"/>
+          <button class="btn sm" id="reminderTestBtn" onclick="sendTestReminder()">Send test</button>
         </div>
       </div>
       <div style="padding:0 20px 14px"><div class="feedback" id="reminderFeedback"></div></div>
@@ -907,15 +908,60 @@
   // ════════════════════════════════════
   // Reminders
   // ════════════════════════════════════
+  async function loadReminderConfig() {
+    try {
+      const res = await fetch('/api/setup/config');
+      const cfg = await res.json();
+      if (cfg.reminder_days)    document.getElementById('reminderDays').value = cfg.reminder_days;
+      if (cfg.reminder_subject) document.getElementById('reminderSubject').value = cfg.reminder_subject;
+    } catch(e) { /* fields keep their HTML defaults */ }
+  }
+
   async function saveReminderConfig() {
-    // For now, config lives in env vars — this is a UI placeholder
-    // In a future sprint, add a settings table to the DB
-    showFeedback('reminderFeedback', 'Settings noted — reminder job will use these values when built.', 'ok');
+    const days    = parseInt(document.getElementById('reminderDays').value, 10);
+    const subject = document.getElementById('reminderSubject').value.trim();
+    if (!Number.isInteger(days) || days < 1 || days > 30) {
+      showFeedback('reminderFeedback', 'Threshold must be a number of days between 1 and 30.', 'err');
+      return;
+    }
+    if (!subject) {
+      showFeedback('reminderFeedback', 'Subject line cannot be empty.', 'err');
+      return;
+    }
+    try {
+      const res  = await fetch('/api/setup', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ reminderDays: days, reminderSubject: subject })
+      });
+      const data = await res.json();
+      if (data.ok) showFeedback('reminderFeedback', 'Settings saved — the daily reminder job will use these values from now on.', 'ok');
+      else         showFeedback('reminderFeedback', data.error || 'Could not save.', 'err');
+    } catch(e) {
+      showFeedback('reminderFeedback', 'Network error — could not save.', 'err');
+    }
   }
 
   async function sendTestReminder() {
-    showFeedback('reminderFeedback', 'Test reminder sent to your email.', 'ok');
-    // TODO: wire to /api/admin/reminders/test when reminder job is built
+    const subject = document.getElementById('reminderSubject').value.trim();
+    const to      = document.getElementById('reminderTestTo').value.trim();
+    const btn     = document.getElementById('reminderTestBtn');
+
+    if (!subject) { showFeedback('reminderFeedback', 'Write a subject line first.', 'err'); return; }
+
+    btn.disabled = true; btn.textContent = 'Sending…';
+    try {
+      const res  = await fetch('/api/admin/reminders/test', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ subject, to: to || undefined })
+      });
+      const data = await res.json();
+      if (data.ok) showFeedback('reminderFeedback', `Test sent to ${data.to}`, 'ok');
+      else         showFeedback('reminderFeedback', data.error || 'Could not send test.', 'err');
+    } catch(e) {
+      showFeedback('reminderFeedback', 'Network error — could not send test.', 'err');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Send test';
+    }
   }
 
   // ── Boot ──
@@ -923,6 +969,7 @@
     loadMotd();
     loadLegal();
     loadPlans();
+    loadReminderConfig();
   });
 </script>
 </body>

@@ -470,18 +470,40 @@ function emailTrialDay14(user) {
 }
 
 // ── Inactivity reminder (Per Bot 5, item 8) ──
-function emailInactivityReminder(user) {
-  const b = brand();
-  return sendEmail(user.email, 'Whenever you\'re ready',
-    `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
+// ── Inactivity reminder — shared HTML, used by both the real send and the ──
+// admin test-send endpoint, so a test email matches a real one exactly.
+function buildReminderHtml(userName, b) {
+  return `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
       <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px">${b.name}</div>
-      <h1 style="font-size:22px;font-weight:normal;color:#1a1a1a;margin-bottom:24px">Hello ${user.name},</h1>
+      <h1 style="font-size:22px;font-weight:normal;color:#1a1a1a;margin-bottom:24px">Hello ${userName},</h1>
       <p style="font-size:15px;line-height:1.7;color:#444;margin-bottom:24px">It's been a little while. No pressure at all — just wanted to leave the door open, in case a few minutes today would help.</p>
       <p style="font-size:14px;line-height:1.7"><a href="${APP_URL}/client/" style="color:#2d6a4f">Visit your practice space →</a></p>
       <hr style="border:none;border-top:1px solid #e0e0e0;margin:28px 0"/>
       <p style="font-size:12px;color:#aaa">${b.name} · <a href="${APP_URL}/account" style="color:#aaa">Manage email preferences</a></p>
-    </div>`
-  );
+    </div>`;
+}
+
+function emailInactivityReminder(user) {
+  const b = brand();
+  const cfg = db.getAppConfig() || {};
+  const subject = cfg.reminder_subject || "Whenever you're ready";
+  return sendEmail(user.email, subject, buildReminderHtml(user.name, b));
+}
+
+// ── Inactivity reminders — scheduled, config-driven ── Run daily by cron
+// (see cron.js). Threshold and subject line come from app_config
+// (reminder_days / reminder_subject, editable in the admin comms panel) —
+// previously these were hardcoded (4 days, a different fixed subject) even
+// though the admin panel showed editable fields for both.
+async function sendInactivityReminders() {
+  const cfg = db.getAppConfig() || {};
+  const days = Number.isInteger(cfg.reminder_days) ? cfg.reminder_days : parseInt(cfg.reminder_days, 10) || 4;
+  const inactive = db.getInactiveUsers(days);
+  for (const user of inactive) {
+    await emailInactivityReminder(user);
+    db.markReminderSent(user.id);
+  }
+  return { ok: true, sent: inactive.length, thresholdDays: days };
 }
 
 // ── Facilitator requests (Per Bot 5, item 11) ──
@@ -2677,6 +2699,7 @@ app.patch('/api/setup', auth.requireAuthApi(['admin']), (req, res) => {
       contactEmail: 'contact_email', currency: 'currency',
       legalEntityName: 'legal_entity_name', legalJurisdiction: 'legal_jurisdiction',
       paymentsEnabled: 'payments_enabled',
+      reminderDays: 'reminder_days', reminderSubject: 'reminder_subject',
     };
     const fields = {};
     Object.keys(fieldMap).forEach(k => {
@@ -3103,6 +3126,28 @@ app.post('/api/admin/motd/test-send-sms', auth.requireAuthApi(['admin']), async 
   }
 });
 
+// ── Inactivity reminder test send ── Sends the CURRENT subject line from the
+// admin form (whether saved yet or not — mirrors the MOTD test-send pattern:
+// see what it looks like before committing) to the logged-in admin's email
+// by default, overridable. No DB writes, no real users touched.
+app.post('/api/admin/reminders/test', auth.requireAuthApi(['admin']), async (req, res) => {
+  try {
+    const { subject, to } = req.body;
+    const toEmail = (to && to.trim()) || req.user.email;
+    if (!toEmail) return res.status(400).json({ error: 'No address to send to.' });
+
+    const cfg = db.getAppConfig() || {};
+    const testSubject = (subject && subject.trim()) || cfg.reminder_subject || "Whenever you're ready";
+    const b = brand();
+
+    await sendEmail(toEmail, `[TEST] ${testSubject}`, buildReminderHtml(req.user.name || 'there', b));
+    res.json({ ok: true, to: toEmail });
+  } catch (e) {
+    console.error('reminder test-send error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 
 // instead of the request just dying silently (this was the original bug: a 54MB
 // upload via the legacy disk path would hit multer's old 50MB limit and the
@@ -3129,6 +3174,6 @@ app.use((err, req, res, next) => {
     db.createFacilitator(uuidv4(), adminName, adminEmail, hash, 'admin');
     console.log(`Admin created: ${adminEmail}`);
   }
-  startCronJobs({ db, sendScheduledMotd, emailTrialDay3, emailTrialDay10, emailTrialDay14, emailInactivityReminder });
+  startCronJobs({ db, sendScheduledMotd, emailTrialDay3, emailTrialDay10, emailTrialDay14, sendInactivityReminders });
   server.listen(PORT, () => console.log(`Per Bot running on port ${PORT}`));
 })();
