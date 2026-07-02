@@ -127,6 +127,8 @@
     .modal-cancel { padding:8px 18px; border-radius:8px; border:1px solid rgba(255,255,255,0.12); background:none; color:rgba(255,255,255,0.45); cursor:pointer; font-family:'Georgia',serif; font-size:13px; }
     .modal-ok { padding:8px 18px; border-radius:8px; border:1px solid rgba(180,230,200,0.3); background:rgba(180,230,200,0.1); color:rgba(180,230,200,0.8); cursor:pointer; font-family:'Georgia',serif; font-size:13px; }
     .modal-note { font-size:12px; color:rgba(255,255,255,0.3); line-height:1.6; }
+    .test-send-row { display:flex; gap:8px; align-items:center; }
+    .test-send-row input { flex:1; }
     .modal-check { display:flex; align-items:center; gap:8px; font-size:13px; color:rgba(255,255,255,0.5); cursor:pointer; }
     .modal-check input { width:auto; accent-color:rgba(180,230,200,0.8); }
 
@@ -258,6 +260,11 @@
       <div class="modal-note" style="margin-top:6px">Leave blank to add to the end of the queue. Or pick a date to pin it to a specific day.</div>
     </div>
     <div class="modal-err" id="motdErr"></div>
+    <div class="test-send-row">
+      <input type="email" id="motdTestTo" placeholder="Defaults to your own email — override to test another address"/>
+      <button class="btn sm" id="motdTestBtn" onclick="testSendMotd()">Send test</button>
+    </div>
+    <div class="feedback" id="motdTestFeedback"></div>
     <div class="modal-btns">
       <button class="modal-cancel" onclick="closeModal('motdModal')">Cancel</button>
       <button class="modal-ok" onclick="saveMotd()">Save as draft</button>
@@ -460,6 +467,8 @@
     document.getElementById('motdEditId').value = editId || '';
     if (!editId) { document.getElementById('motdBody').value = ''; document.getElementById('motdDate').value = ''; }
     document.getElementById('motdErr').textContent = '';
+    document.getElementById('motdTestTo').value = '';
+    document.getElementById('motdTestFeedback').textContent = '';
     openModal('motdModal');
   }
 
@@ -471,6 +480,8 @@
     document.getElementById('motdDate').value   = m.scheduled_date || '';
     document.getElementById('motdModalTitle').textContent = 'Edit message';
     document.getElementById('motdErr').textContent = '';
+    document.getElementById('motdTestTo').value = '';
+    document.getElementById('motdTestFeedback').textContent = '';
     openModal('motdModal');
   }
 
@@ -490,6 +501,32 @@
     const data = await res.json();
     if (data.id || data.ok) { closeModal('motdModal'); loadMotd(); }
     else err.textContent = data.error || 'Could not save.';
+  }
+
+  async function testSendMotd() {
+    const body = document.getElementById('motdBody').value.trim();
+    const to   = document.getElementById('motdTestTo').value.trim();
+    const fb   = document.getElementById('motdTestFeedback');
+    const btn  = document.getElementById('motdTestBtn');
+
+    if (!body) { fb.textContent = 'Write the message first.'; fb.className = 'feedback err'; return; }
+
+    btn.disabled = true; btn.textContent = 'Sending…';
+    fb.textContent = ''; fb.className = 'feedback';
+
+    try {
+      const res  = await fetch('/api/admin/motd/test-send', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ body, to: to || undefined })
+      });
+      const data = await res.json();
+      if (data.ok) { fb.textContent = `Sent to ${data.to}`; fb.className = 'feedback ok'; }
+      else { fb.textContent = data.error || 'Could not send test.'; fb.className = 'feedback err'; }
+    } catch (e) {
+      fb.textContent = 'Network error — could not send test.'; fb.className = 'feedback err';
+    } finally {
+      btn.disabled = false; btn.textContent = 'Send test';
+    }
   }
 
   async function approveMotd(id) {

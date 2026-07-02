@@ -2740,6 +2740,22 @@ app.delete('/api/admin/motd/:id', auth.requireAuthApi(['admin']), (req, res) => 
   catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── MOTD email markup — shared by the real send (sendDailyMotd) and the ──
+// admin test-send endpoint below, so a test email is pixel-identical to
+// what a real recipient gets. Only extracted, not changed.
+function buildMotdHtml(body, b) {
+  return `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
+        <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:24px">${b.name}</div>
+        <p style="font-size:17px;line-height:1.8;color:#1a1a1a;margin-bottom:32px">${body.replace(/\n/g, '<br/>')}</p>
+        <hr style="border:none;border-top:1px solid #e0e0e0;margin:28px 0"/>
+        <p style="font-size:12px;color:#aaa">
+          You're receiving this because you're a member of ${b.name}.
+          <a href="${APP_URL}/client/" style="color:#2d6a4f">Visit your practice space</a> ·
+          <a href="${APP_URL}/account" style="color:#888">Manage preferences</a>
+        </p>
+      </div>`;
+}
+
 // ── MOTD send — the actual send logic, callable directly (cron) or via the ──
 // admin endpoint below (manual trigger / testing). Kept as one function so
 // there's exactly one place this logic lives.
@@ -2757,19 +2773,7 @@ async function sendDailyMotd() {
   let sent = 0;
   const b = brand();
   for (const user of recipients) {
-    await sendEmail(user.email,
-      `From ${b.name} — a moment for today`,
-      `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px;color:#2a2a2a">
-        <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:24px">${b.name}</div>
-        <p style="font-size:17px;line-height:1.8;color:#1a1a1a;margin-bottom:32px">${motd.body.replace(/\n/g, '<br/>')}</p>
-        <hr style="border:none;border-top:1px solid #e0e0e0;margin:28px 0"/>
-        <p style="font-size:12px;color:#aaa">
-          You're receiving this because you're a member of ${b.name}.
-          <a href="${APP_URL}/client/" style="color:#2d6a4f">Visit your practice space</a> ·
-          <a href="${APP_URL}/account" style="color:#888">Manage preferences</a>
-        </p>
-      </div>`
-    );
+    await sendEmail(user.email, `From ${b.name} — a moment for today`, buildMotdHtml(motd.body, b));
     sent++;
   }
 
@@ -2798,6 +2802,28 @@ app.post('/api/admin/motd/send-daily', auth.requireAuthApi(['admin']), async (re
     res.json(result);
   } catch(e) {
     console.error('motd send error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── MOTD test send — sends the exact compose-modal draft to a single address, ──
+// bypassing the queue entirely. No DB writes, no recipient list, no "sent"
+// marking — just a real email so you can see it land before approving it for
+// the real queue. Defaults to the logged-in admin's own email; the modal lets
+// that be overridden for testing a different inbox.
+app.post('/api/admin/motd/test-send', auth.requireAuthApi(['admin']), async (req, res) => {
+  try {
+    const { body, to } = req.body;
+    if (!body || !body.trim()) return res.status(400).json({ error: 'Message body is empty.' });
+
+    const toEmail = (to && to.trim()) || req.user.email;
+    if (!toEmail) return res.status(400).json({ error: 'No address to send to — override the address or check your admin account has an email set.' });
+
+    const b = brand();
+    await sendEmail(toEmail, `[TEST] From ${b.name} — a moment for today`, buildMotdHtml(body, b));
+    res.json({ ok: true, to: toEmail });
+  } catch (e) {
+    console.error('motd test-send error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
