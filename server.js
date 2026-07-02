@@ -793,23 +793,28 @@ app.post('/api/admin/members', auth.requireAuthApi(['admin']), async (req, res) 
 // (name/Name/Full Name, email/Email/Subscriber) so exports from different
 // places don't need reformatting first.
 //
-// Unlike the mailing-list-only import (createMailingListContact — no
-// password, no login), every account created here gets a real password and
-// can log in, because these are actual Explorer/Member accounts, not
-// passive newsletter contacts.
+// tier can be 0/1/2/3 (a real Explorer/Member account, password + optional
+// welcome email) OR the string 'newsletter_only' — passive contacts with no
+// password and no login, same as createMailingListContact used by the
+// one-off mailing-list import script. No welcome email is ever sent for
+// newsletter_only, regardless of what the form sends, since there's no
+// password to tell anyone about.
 //
-// Welcome emails are sent AFTER responding to the request, not awaited
-// inline — a few hundred individual Scaleway sends would otherwise risk
-// the request itself timing out. The response tells you how many were
-// created immediately; the emails follow shortly after in the background.
+// Welcome emails (real-account tiers only) are sent AFTER responding to the
+// request, not awaited inline — a few hundred individual Scaleway sends
+// would otherwise risk the request itself timing out. The response tells
+// you how many were created immediately; the emails follow shortly after.
 app.post('/api/admin/members/bulk-import', auth.requireAuthApi(['admin']), upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
 
-    const tier = parseInt(req.body.tier, 10);
-    if (![0, 1, 2, 3].includes(tier)) return res.status(400).json({ error: 'Invalid tier.' });
+    const tierRaw = req.body.tier;
+    const isNewsletterOnly = tierRaw === 'newsletter_only';
+    const tier = isNewsletterOnly ? null : parseInt(tierRaw, 10);
+    if (!isNewsletterOnly && ![0, 1, 2, 3].includes(tier)) return res.status(400).json({ error: 'Invalid tier.' });
+
     const trialWeeks = Math.max(0, parseInt(req.body.trialWeeks, 10) || 0);
-    const sendWelcomeEmail = req.body.sendWelcomeEmail === 'true' || req.body.sendWelcomeEmail === '1';
+    const sendWelcomeEmail = !isNewsletterOnly && (req.body.sendWelcomeEmail === 'true' || req.body.sendWelcomeEmail === '1');
 
     let rows;
     try {
@@ -843,6 +848,12 @@ app.post('/api/admin/members/bulk-import', auth.requireAuthApi(['admin']), uploa
       const first = findCol(row, ['name', 'fullname', 'firstname']);
       const last  = findCol(row, ['lastname']);
       const name  = [first, last].filter(Boolean).join(' ').trim() || email;
+
+      if (isNewsletterOnly) {
+        db.createMailingListContact(uuidv4(), name, email);
+        created++;
+        continue;
+      }
 
       const id = uuidv4();
       const tempPassword = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6).toUpperCase();
@@ -1758,16 +1769,51 @@ app.post('/api/guest/chat', auth.requireGuestIdentity(), async (req, res) => {
 
 
 
+// Never send password_hash to the browser — getAllUsersAdmin does `SELECT
+// u.*`, which includes it. has_login (computed from the same fact) is what
+// the frontend actually needs, to tell real accounts apart from passive
+// newsletter-only contacts (createMailingListContact — no password at all).
 app.get('/api/admin/users', auth.requireAuthApi(['admin']), (req, res) => {
-  res.json(db.getAllUsersAdmin(false));
+  const users = db.getAllUsersAdmin(false).map(u => {
+    const { password_hash, ...safe } = u;
+    return { ...safe, has_login: !!password_hash };
+  });
+  res.json(users);
 });
 
-// ── /api/admin/users/:id/upgrade — upgrade to member tier ──
-app.patch('/api/admin/users/:id/upgrade', auth.requireAuthApi(['admin']), (req, res) => {
-  const { level, tier } = req.body;
-  const memberTier = tier != null ? parseInt(tier) : (level === 'member' ? 1 : parseInt(level) || 1);
-  db.setMemberTier(req.params.id, memberTier, null, null, null, null);
-  res.json({ ok: true });
+// ── /api/admin/users/:id/upgrade — set tier, activating a login if needed ──
+// A newsletter-only contact (createMailingListContact) has no password at
+// all — "moving them up" to Explorer or Member N isn't just a tier change
+// for them, it's the moment they actually become a real account. This
+// generates a password the same way Add Member / Bulk Import do whenever
+// the target has none yet, sends the same welcome email, and simply
+// changes tier for anyone who already had a real account (unchanged
+// behaviour from before).
+app.patch('/api/admin/users/:id/upgrade', auth.requireAuthApi(['admin']), async (req, res) => {
+  try {
+    const { level, tier, sendWelcomeEmail } = req.body;
+    const memberTier = tier != null ? parseInt(tier) : (level === 'member' ? 1 : parseInt(level) || 1);
+
+    const user = db.getUser(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+
+    let tempPassword = null;
+    if (!user.password_hash) {
+      tempPassword = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6).toUpperCase();
+      const passwordHash = await auth.hashPassword(tempPassword);
+      db.updateClientPassword(req.params.id, passwordHash);
+    }
+
+    db.setMemberTier(req.params.id, memberTier, null, null, null, null);
+
+    const shouldEmail = tempPassword && sendWelcomeEmail !== false;
+    if (shouldEmail) emailWelcomeClient(user.name, user.email, tempPassword);
+
+    res.json({ ok: true, activated: !!tempPassword, welcomeEmailSent: !!shouldEmail });
+  } catch (e) {
+    console.error('upgrade error:', e);
+    res.status(500).json({ error: 'Something went wrong.' });
+  }
 });
 
 // ── /api/admin/users/:id/expiry — manual membership expiry override ──

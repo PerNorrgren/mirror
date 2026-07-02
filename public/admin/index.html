@@ -43,6 +43,8 @@
     .col-level  { flex:0.8; font-size:11px; color:rgba(255,255,255,0.35); }
     .col-status { flex:0.6; }
     .col-fac    { flex:1; font-size:12px; color:rgba(255,255,255,0.3); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .col-created { flex:0.8; font-size:12px; color:rgba(255,255,255,0.3); }
+    .col-actions { flex:1.1; display:flex; gap:6px; align-items:center; justify-content:flex-end; }
     .col-actions { display:flex; gap:6px; flex-shrink:0; }
     .table-hdr  { display:flex; align-items:center; padding:8px 20px; gap:14px; border-bottom:1px solid rgba(255,255,255,0.06); background:rgba(255,255,255,0.02); }
     .table-hdr-cell { font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:rgba(255,255,255,0.25); cursor:pointer; user-select:none; display:flex; align-items:center; gap:4px; }
@@ -79,6 +81,13 @@
       font-family:'Georgia',serif; outline:none;
     }
     .modal select:focus { border-color:rgba(180,230,200,0.3); }
+    .inline-select {
+      background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);
+      border-radius:7px; padding:7px 10px; font-size:12px; color:rgba(255,255,255,0.75);
+      font-family:'Georgia',serif; outline:none; cursor:pointer;
+    }
+    .inline-select:focus { border-color:rgba(180,230,200,0.3); }
+    .row-move-select { background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:5px 7px; font-size:11px; color:rgba(255,255,255,0.6); font-family:'Georgia',serif; outline:none; cursor:pointer; }
     .bulk-check-row { display:flex; align-items:flex-start; gap:9px; }
     .bulk-check-row input[type=checkbox] { width:auto; margin-top:3px; }
     .bulk-warn { font-size:12px; color:rgba(255,180,120,0.75); line-height:1.6; margin-top:6px; }
@@ -203,6 +212,30 @@
         </div>
         <div class="card-search-wrap"><input class="card-search" id="userSearch" placeholder="Search explorers… (* and ? wildcards)" oninput="renderUsers()"/></div>
         <div class="table" id="usersTable"><div class="loading">Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- Newsletter-only contacts — no login, passive email addresses -->
+    <div>
+      <div class="section-label">Newsletter contacts</div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Newsletter contacts</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <select class="inline-select" id="nlContactBulkAction">
+              <option value="">Bulk action…</option>
+              <option value="explorer">Move to Explorer</option>
+              <option value="1">Move to Member 1</option>
+              <option value="2">Move to Member 2</option>
+              <option value="3">Move to Member 3</option>
+              <option value="delete">Delete</option>
+            </select>
+            <button class="btn sm disabled" id="nlContactApplyBtn" onclick="applyNlContactBulkAction()">Apply</button>
+          </div>
+        </div>
+        <div class="modal-note" style="padding:0 20px 10px">No login — receive the newsletter only. Moving one up gives them a real password and a welcome email.</div>
+        <div class="card-search-wrap"><input class="card-search" id="nlContactSearch" placeholder="Search newsletter contacts… (* and ? wildcards)" oninput="renderNlContacts()"/></div>
+        <div class="table" id="nlContactsTable"><div class="loading">Loading…</div></div>
       </div>
     </div>
 
@@ -405,6 +438,7 @@
       <div style="margin-top:14px">
         <label>Start everyone at</label>
         <select id="bulkTier" onchange="toggleBulkTrialField()">
+          <option value="newsletter_only">Newsletter only (no login)</option>
           <option value="0">Explorer (free)</option>
           <option value="1">Member 1</option>
           <option value="2">Member 2</option>
@@ -412,13 +446,15 @@
         </select>
       </div>
 
+      <div class="modal-note" style="margin-top:10px" id="bulkNewsletterOnlyNote">Passive contacts — receive the newsletter only, no password, no way to log in. Good for an existing mailing list you're not ready to invite in yet. They'll automatically show up as "Explorer" instead the moment you give them a real login later.</div>
+
       <div style="margin-top:14px" id="bulkTrialField">
         <label>Free weeks before it expires</label>
         <input type="number" id="bulkTrialWeeks" value="2" min="0" step="1"/>
         <div class="modal-note" style="margin-top:6px">0 = permanent, no automatic expiry (an admin-granted membership, not a trial). Otherwise it behaves exactly like a normal trial and quietly reverts to Explorer if it lapses with no active subscription.</div>
       </div>
 
-      <div style="margin-top:16px" class="bulk-check-row">
+      <div style="margin-top:16px" class="bulk-check-row" id="bulkWelcomeRow">
         <input type="checkbox" id="bulkSendWelcome" checked onchange="toggleBulkWelcomeWarning()"/>
         <label style="text-transform:none;letter-spacing:normal;font-size:13px;color:rgba(255,255,255,0.7);margin-bottom:0">Send a welcome email with login details to each new person</label>
       </div>
@@ -840,7 +876,7 @@
   // ── Bulk member import ──
   function openBulkImportModal() {
     document.getElementById('bulkFile').value = '';
-    document.getElementById('bulkTier').value = '0';
+    document.getElementById('bulkTier').value = 'newsletter_only';
     document.getElementById('bulkTrialWeeks').value = '2';
     document.getElementById('bulkSendWelcome').checked = true;
     document.getElementById('bulkImportErr').textContent = '';
@@ -852,8 +888,16 @@
   }
 
   function toggleBulkTrialField() {
-    const isExplorer = document.getElementById('bulkTier').value === '0';
-    document.getElementById('bulkTrialField').style.display = isExplorer ? 'none' : '';
+    const tier = document.getElementById('bulkTier').value;
+    const isNewsletterOnly = tier === 'newsletter_only';
+    const isExplorer = tier === '0';
+    document.getElementById('bulkNewsletterOnlyNote').style.display = isNewsletterOnly ? '' : 'none';
+    document.getElementById('bulkTrialField').style.display = (isNewsletterOnly || isExplorer) ? 'none' : '';
+    // No password is ever created for newsletter-only contacts, so there's
+    // nothing for a welcome email to contain — hide that whole row rather
+    // than show a checkbox that can't do anything.
+    document.getElementById('bulkWelcomeRow').style.display = isNewsletterOnly ? 'none' : '';
+    document.getElementById('bulkWelcomeWarning').style.display = 'none';
   }
 
   function toggleBulkWelcomeWarning() {
@@ -867,8 +911,9 @@
     if (!fileInput.files.length) { err.textContent = 'Choose a CSV file first.'; return; }
 
     const tier = document.getElementById('bulkTier').value;
-    const trialWeeks = tier === '0' ? '0' : document.getElementById('bulkTrialWeeks').value;
-    const sendWelcomeEmail = document.getElementById('bulkSendWelcome').checked;
+    const isNewsletterOnly = tier === 'newsletter_only';
+    const trialWeeks = (isNewsletterOnly || tier === '0') ? '0' : document.getElementById('bulkTrialWeeks').value;
+    const sendWelcomeEmail = isNewsletterOnly ? false : document.getElementById('bulkSendWelcome').checked;
 
     const btn = document.getElementById('bulkImportBtn');
     btn.disabled = true; btn.textContent = 'Importing…';
@@ -885,12 +930,12 @@
       const data = await res.json();
       if (!data.ok) { err.textContent = data.error || 'Import failed.'; btn.disabled = false; btn.textContent = 'Import'; return; }
 
-      const tierNames = { '0': 'Explorer', '1': 'Member 1', '2': 'Member 2', '3': 'Member 3' };
+      const tierNames = { 'newsletter_only': 'Newsletter only', '0': 'Explorer', '1': 'Member 1', '2': 'Member 2', '3': 'Member 3' };
       document.getElementById('bulkImportSummary').innerHTML = `
-        <div><strong>${data.created}</strong> new account${data.created === 1 ? '' : 's'} created at ${tierNames[tier]}</div>
+        <div><strong>${data.created}</strong> new ${isNewsletterOnly ? 'contact' : 'account'}${data.created === 1 ? '' : 's'} created at ${tierNames[tier]}</div>
         <div>${data.alreadyExisted} already had an account — left untouched</div>
         <div>${data.invalid} row${data.invalid === 1 ? '' : 's'} skipped — no valid email</div>
-        <div style="margin-top:8px;color:rgba(255,255,255,0.5)">${data.emailQueueCount > 0 ? `Welcome emails are sending in the background to ${data.emailQueueCount} ${data.emailQueueCount === 1 ? 'person' : 'people'} now.` : 'No welcome emails were sent.'}</div>
+        <div style="margin-top:8px;color:rgba(255,255,255,0.5)">${data.emailQueueCount > 0 ? `Welcome emails are sending in the background to ${data.emailQueueCount} ${data.emailQueueCount === 1 ? 'person' : 'people'} now.` : (isNewsletterOnly ? 'No welcome emails — these are newsletter-only contacts with no login.' : 'No welcome emails were sent.')}</div>
       `;
       document.getElementById('bulkImportForm').style.display = 'none';
       document.getElementById('bulkImportResult').style.display = '';
@@ -1100,7 +1145,12 @@
   async function loadUsers() {
     userSel.clear();
     const res=await fetch('/api/admin/users');
-    _userData=await res.json();
+    // has_login=false means a newsletter-only contact (no password) — those
+    // now live in their own "Newsletter contacts" section below, not mixed
+    // in here. Excluding them here also fixes a real bug the old mixed view
+    // had: the Upgrade action used to set a tier on these with no password
+    // at all, leaving a "Member" with no way to ever log in.
+    _userData=(await res.json()).filter(u => u.has_login !== false);
     renderUsers();
   }
 
@@ -1186,6 +1236,91 @@
     showConfirm('Delete user'+(ids.length>1?'s':''),
       `Permanently delete ${ids.length} user${ids.length>1?'s':''}? Cannot be undone.`,
       async()=>{ await Promise.all(ids.map(id=>fetch(`/api/clients/${id}`,{method:'DELETE'}))); loadUsers(); });
+  }
+
+  // ══════════════════════════════════════════
+  // ── NEWSLETTER CONTACTS — no login, passive email addresses ──
+  // ══════════════════════════════════════════
+  let _nlContactData = [];
+  const nlContactSel = makeSelection(['nlContactApplyBtn'], null);
+
+  async function loadNlContacts() {
+    nlContactSel.clear();
+    const res = await fetch('/api/admin/users');
+    _nlContactData = (await res.json()).filter(u => u.has_login === false);
+    renderNlContacts();
+  }
+
+  function renderNlContacts() {
+    nlContactSel.clear();
+    const el    = document.getElementById('nlContactsTable');
+    const query = document.getElementById('nlContactSearch').value.trim();
+    let list    = _nlContactData.filter(u => matchesSearch(u, query, ['name','email']));
+    if (!list.length) { el.innerHTML = '<div class="empty">No newsletter-only contacts.</div>'; return; }
+    el.innerHTML =
+      `<div class="table-hdr">
+        <div class="col-cb"><input type="checkbox" id="nlContactAllCb" onchange="nlContactSel.toggleAll('nlContactsTable',this)"/></div>
+        <div class="table-hdr-cell col-name">Name</div>
+        <div class="table-hdr-cell col-email">Email</div>
+        <div class="table-hdr-cell col-created">Added</div>
+        <div class="table-hdr-cell col-actions" style="justify-content:flex-end">Move to</div>
+      </div>` +
+      list.map(u => `
+        <div class="table-row">
+          <div class="col-cb"><input class="row-cb" type="checkbox" value="${u.id}" onchange="nlContactSel.toggle('${u.id}',this.checked)"/></div>
+          <div class="col-name">${u.name}</div>
+          <div class="col-email">${u.email||'—'}</div>
+          <div class="col-created">${(u.created_at||'').slice(0,10)}</div>
+          <div class="col-actions">
+            <select class="row-move-select" onchange="moveNlContact('${u.id}','${(u.name||'').replace(/'/g,"\\'")}',this.value);this.selectedIndex=0;">
+              <option value="">Move to…</option>
+              <option value="explorer">Explorer</option>
+              <option value="1">Member 1</option>
+              <option value="2">Member 2</option>
+              <option value="3">Member 3</option>
+            </select>
+            <button class="btn sm danger" onclick="deleteNlContact('${u.id}','${(u.name||'').replace(/'/g,"\\'")}')">Delete</button>
+          </div>
+        </div>`).join('');
+  }
+
+  function nlTierFromValue(v) { return v === 'explorer' ? 0 : parseInt(v, 10); }
+  function nlTierLabel(v) { return v === 'explorer' ? 'Explorer' : `Member ${v}`; }
+
+  function moveNlContact(id, name, value) {
+    if (!value) return;
+    const tier = nlTierFromValue(value);
+    showConfirm(`Move to ${nlTierLabel(value)}`,
+      `Give ${name} a real password and move them to ${nlTierLabel(value)}? A welcome email will be sent.`,
+      async () => {
+        await fetch(`/api/admin/users/${id}/upgrade`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ tier, sendWelcomeEmail: true }) });
+        loadNlContacts(); loadUsers(); loadMembers();
+      });
+  }
+
+  function deleteNlContact(id, name) {
+    showConfirm('Delete contact', `Permanently delete ${name}? Cannot be undone.`,
+      async () => { await fetch(`/api/clients/${id}`, { method:'DELETE' }); loadNlContacts(); });
+  }
+
+  function applyNlContactBulkAction() {
+    const ids = [...nlContactSel.sel]; if (!ids.length) return;
+    const action = document.getElementById('nlContactBulkAction').value;
+    if (!action) return;
+
+    if (action === 'delete') {
+      showConfirm('Delete contacts', `Permanently delete ${ids.length} contact${ids.length>1?'s':''}? Cannot be undone.`,
+        async () => { await Promise.all(ids.map(id => fetch(`/api/clients/${id}`,{method:'DELETE'}))); loadNlContacts(); });
+      return;
+    }
+
+    const tier = nlTierFromValue(action);
+    showConfirm(`Move to ${nlTierLabel(action)}`,
+      `Give ${ids.length} contact${ids.length>1?'s':''} a real password and move them to ${nlTierLabel(action)}? A welcome email will be sent to each.`,
+      async () => {
+        await Promise.all(ids.map(id => fetch(`/api/admin/users/${id}/upgrade`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({ tier, sendWelcomeEmail: true })})));
+        loadNlContacts(); loadUsers(); loadMembers();
+      });
   }
 
   // ══════════════════════════════════════════
@@ -1356,6 +1491,7 @@
   loadMembers();
   loadMembers();
   loadUsers();
+  loadNlContacts();
   loadLeads();
   loadFacilitatorRequests();
 </script>
