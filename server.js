@@ -24,6 +24,7 @@ const auth       = require('./auth');
 const prompts    = require('./prompts');
 const { startCronJobs } = require('./cron');
 const media      = require('./media');
+const sms        = require('./sms');
 
 // ── Config ──
 const ANTHROPIC_API_KEY  = process.env.ANTHROPIC_API_KEY;
@@ -2824,6 +2825,30 @@ app.post('/api/admin/motd/test-send', auth.requireAuthApi(['admin']), async (req
     res.json({ ok: true, to: toEmail });
   } catch (e) {
     console.error('motd test-send error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── MOTD test send — SMS ── Same idea as the email test-send above, but over
+// Twilio. No default recipient — unlike email there's no logged-in admin
+// phone number on file, so the modal requires an explicit number here.
+// SMS has no HTML/formatting, so this sends motd.body as plain text, as-is.
+app.post('/api/admin/motd/test-send-sms', auth.requireAuthApi(['admin']), async (req, res) => {
+  try {
+    if (!sms.isConfigured()) return res.status(400).json({ error: 'SMS is not configured yet — set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER in Railway.' });
+
+    const { body, to } = req.body;
+    if (!body || !body.trim()) return res.status(400).json({ error: 'Message body is empty.' });
+
+    const toPhone = (to || '').trim();
+    if (!toPhone) return res.status(400).json({ error: 'Enter a phone number to send the test to (e.g. +447...).' });
+
+    const result = await sms.sendSms(toPhone, body.trim());
+    if (!result.ok) return res.status(400).json({ error: result.error || 'Could not send SMS.' });
+
+    res.json({ ok: true, to: toPhone });
+  } catch (e) {
+    console.error('motd test-send-sms error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });

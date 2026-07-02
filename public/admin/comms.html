@@ -265,6 +265,11 @@
       <button class="btn sm" id="motdTestBtn" onclick="testSendMotd()">Send test</button>
     </div>
     <div class="feedback" id="motdTestFeedback"></div>
+    <div class="test-send-row">
+      <input type="tel" id="motdTestPhone" placeholder="Phone number for SMS test, e.g. +447..."/>
+      <button class="btn sm" id="motdTestSmsBtn" onclick="testSendMotdSms()">Send SMS test</button>
+    </div>
+    <div class="feedback" id="motdTestSmsFeedback"></div>
     <div class="modal-btns">
       <button class="modal-cancel" onclick="closeModal('motdModal')">Cancel</button>
       <button class="modal-ok" onclick="saveMotd()">Save as draft</button>
@@ -469,6 +474,8 @@
     document.getElementById('motdErr').textContent = '';
     document.getElementById('motdTestTo').value = '';
     document.getElementById('motdTestFeedback').textContent = '';
+    document.getElementById('motdTestPhone').value = '';
+    document.getElementById('motdTestSmsFeedback').textContent = '';
     openModal('motdModal');
   }
 
@@ -482,6 +489,8 @@
     document.getElementById('motdErr').textContent = '';
     document.getElementById('motdTestTo').value = '';
     document.getElementById('motdTestFeedback').textContent = '';
+    document.getElementById('motdTestPhone').value = '';
+    document.getElementById('motdTestSmsFeedback').textContent = '';
     openModal('motdModal');
   }
 
@@ -526,6 +535,33 @@
       fb.textContent = 'Network error — could not send test.'; fb.className = 'feedback err';
     } finally {
       btn.disabled = false; btn.textContent = 'Send test';
+    }
+  }
+
+  async function testSendMotdSms() {
+    const body  = document.getElementById('motdBody').value.trim();
+    const phone = document.getElementById('motdTestPhone').value.trim();
+    const fb    = document.getElementById('motdTestSmsFeedback');
+    const btn   = document.getElementById('motdTestSmsBtn');
+
+    if (!body)  { fb.textContent = 'Write the message first.'; fb.className = 'feedback err'; return; }
+    if (!phone) { fb.textContent = 'Enter a phone number, e.g. +447...'; fb.className = 'feedback err'; return; }
+
+    btn.disabled = true; btn.textContent = 'Sending…';
+    fb.textContent = ''; fb.className = 'feedback';
+
+    try {
+      const res  = await fetch('/api/admin/motd/test-send-sms', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ body, to: phone })
+      });
+      const data = await res.json();
+      if (data.ok) { fb.textContent = `Sent to ${data.to}`; fb.className = 'feedback ok'; }
+      else { fb.textContent = data.error || 'Could not send SMS test.'; fb.className = 'feedback err'; }
+    } catch (e) {
+      fb.textContent = 'Network error — could not send SMS test.'; fb.className = 'feedback err';
+    } finally {
+      btn.disabled = false; btn.textContent = 'Send SMS test';
     }
   }
 
