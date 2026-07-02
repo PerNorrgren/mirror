@@ -48,6 +48,26 @@
     }
     .field input:focus { border-color:rgba(180,230,200,0.4); }
     .field input:disabled { opacity:0.4; cursor:not-allowed; }
+    .field select {
+      background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1);
+      border-radius:9px; padding:10px 13px; font-size:14px;
+      color:rgba(255,255,255,0.82); font-family:'Georgia',serif; outline:none;
+      transition:border-color 0.2s; appearance:none;
+    }
+    .field select:focus { border-color:rgba(180,230,200,0.4); }
+
+    /* Day-of-week picker */
+    .day-picker { display:flex; gap:6px; flex-wrap:wrap; }
+    .day-chip {
+      padding:7px 11px; border-radius:8px; border:1px solid rgba(255,255,255,0.12);
+      background:rgba(255,255,255,0.05); color:rgba(255,255,255,0.4);
+      font-size:11px; letter-spacing:0.03em; cursor:pointer; font-family:'Georgia',serif;
+      transition:all 0.2s;
+    }
+    .day-chip:hover { background:rgba(255,255,255,0.08); }
+    .day-chip.active { background:rgba(180,230,200,0.15); border-color:rgba(180,230,200,0.4); color:rgba(180,230,200,0.9); }
+    .schedule-block { display:flex; flex-direction:column; gap:10px; padding:12px 0 4px; }
+    .schedule-note { font-size:11px; color:rgba(255,255,255,0.25); line-height:1.5; }
 
     /* Toggles */
     .pref-row { display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid rgba(255,255,255,0.05); }
@@ -264,6 +284,27 @@
         <input type="tel" id="fieldPhone" placeholder="+44 7700 000000" onblur="savePrefs()"/>
       </div>
 
+      <div class="schedule-block">
+        <div class="pref-label">
+          <div class="pref-name">When you'd like it</div>
+          <div class="pref-desc">Applies to the daily message, by email and/or SMS</div>
+        </div>
+        <div class="day-picker" id="motdDayPicker">
+          <button type="button" class="day-chip" data-day="1" onclick="toggleMotdDay(this)">Mon</button>
+          <button type="button" class="day-chip" data-day="2" onclick="toggleMotdDay(this)">Tue</button>
+          <button type="button" class="day-chip" data-day="3" onclick="toggleMotdDay(this)">Wed</button>
+          <button type="button" class="day-chip" data-day="4" onclick="toggleMotdDay(this)">Thu</button>
+          <button type="button" class="day-chip" data-day="5" onclick="toggleMotdDay(this)">Fri</button>
+          <button type="button" class="day-chip" data-day="6" onclick="toggleMotdDay(this)">Sat</button>
+          <button type="button" class="day-chip" data-day="0" onclick="toggleMotdDay(this)">Sun</button>
+        </div>
+        <div class="field" style="max-width:220px">
+          <label>Time (UTC)</label>
+          <select id="motdHour" onchange="savePrefs()"></select>
+        </div>
+        <div class="schedule-note">Times are shown in UTC for now. Default is every day at 09:00 UTC.</div>
+      </div>
+
       <div class="msg" id="prefsMsg" style="margin-top:10px"></div>
     </div>
   </div>
@@ -368,6 +409,17 @@
   // ── Load account ──
   let account = null;
 
+  // Build the UTC hour dropdown once — 00:00 through 23:00
+  (function buildHourOptions() {
+    const sel = document.getElementById('motdHour');
+    for (let h = 0; h < 24; h++) {
+      const opt = document.createElement('option');
+      opt.value = h;
+      opt.textContent = String(h).padStart(2, '0') + ':00';
+      sel.appendChild(opt);
+    }
+  })();
+
   async function loadAccount() {
     try {
       const res  = await fetch('/api/account');
@@ -400,6 +452,13 @@
     document.getElementById('prefSms').checked      = !!a.pref_sms;
     if (a.pref_sms) document.getElementById('phoneField').style.display = 'block';
     if (a.phone) document.getElementById('fieldPhone').value = a.phone;
+
+    // MOTD schedule — days defaults to every day, hour defaults to 9 (09:00 UTC)
+    const activeDays = String(a.motd_days || '0,1,2,3,4,5,6').split(',').map(d => d.trim());
+    document.querySelectorAll('#motdDayPicker .day-chip').forEach(chip => {
+      chip.classList.toggle('active', activeDays.includes(chip.dataset.day));
+    });
+    document.getElementById('motdHour').value = (a.motd_hour !== null && a.motd_hour !== undefined) ? a.motd_hour : 9;
 
     // GDPR
     const consentDate = fmtDate(a.consent_date);
@@ -535,11 +594,26 @@
     btn.disabled = false; btn.textContent = 'Save changes';
   }
 
+  // ── Day-of-week picker for MOTD schedule ──
+  // Keeps at least one day active — an empty selection would mean the user
+  // never gets matched by the hourly scheduled-send query, silently going
+  // dark with no error to explain why. Toggling the last active chip off
+  // just re-activates it instead.
+  function toggleMotdDay(chip) {
+    const picker = document.getElementById('motdDayPicker');
+    const activeChips = picker.querySelectorAll('.day-chip.active');
+    if (chip.classList.contains('active') && activeChips.length === 1) return; // keep at least one
+    chip.classList.toggle('active');
+    savePrefs();
+  }
+
   // ── Save preferences — fires on every toggle change ──
   let prefTimer = null;
   async function savePrefs() {
     clearTimeout(prefTimer);
     prefTimer = setTimeout(async () => {
+      const activeDays = Array.from(document.querySelectorAll('#motdDayPicker .day-chip.active'))
+        .map(chip => chip.dataset.day).join(',');
       const body = {
         pref_email_motd:      document.getElementById('prefMotd').checked      ? 1 : 0,
         pref_email_reminders: document.getElementById('prefReminders').checked ? 1 : 0,
@@ -547,6 +621,8 @@
         pref_email_news:      document.getElementById('prefNews').checked       ? 1 : 0,
         pref_sms:             document.getElementById('prefSms').checked        ? 1 : 0,
         phone:                document.getElementById('fieldPhone').value.trim() || null,
+        motd_days:            activeDays,
+        motd_hour:            parseInt(document.getElementById('motdHour').value, 10),
       };
       try {
         const res  = await fetch('/api/account', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });

@@ -506,6 +506,19 @@ async function getDb() {
     // it — see releaseSession(). Editing/regenerating the draft never touches
     // client_summary, so nothing can leak to the client before release.
     "ALTER TABLE sessions ADD COLUMN client_summary_draft TEXT DEFAULT ''",
+    // Per-user MOTD delivery schedule (Per Bot 6, item: choose day/time for
+    // daily message + SMS). Days are comma-separated JS getUTCDay() values,
+    // 0=Sunday..6=Saturday. Hour is 0-23 UTC. Defaults match the brief:
+    // every day, 09:00 UTC. motd_last_sent_date dedupes against the hourly
+    // cron firing more than once inside a user's chosen hour.
+    "ALTER TABLE users ADD COLUMN motd_days TEXT DEFAULT '0,1,2,3,4,5,6'",
+    "ALTER TABLE users ADD COLUMN motd_hour INTEGER DEFAULT 9",
+    "ALTER TABLE users ADD COLUMN motd_last_sent_date TEXT",
+    // Tracks which approved message is "today's" active message — see
+    // sendScheduledMotd() in server.js. Stays 'approved' (not 'sent') while
+    // active so different users can still receive it across their own
+    // scheduled hours on the same calendar day.
+    "ALTER TABLE messages_of_the_day ADD COLUMN activated_date TEXT",
     // ── clients → users rename migration ──
     // SQLite cannot rename tables in older versions, so we use a copy-and-rename
     // approach via the migration block below. Handled separately after this list.
@@ -1339,7 +1352,7 @@ function markAsSystemClient(id) {
 
 // ── User preferences (My Account) ──
 function updateUserPreferences(userId, prefs) {
-  const allowed = ['pref_email_motd','pref_email_reminders','pref_email_renewal','pref_email_news','pref_sms','phone','language'];
+  const allowed = ['pref_email_motd','pref_email_reminders','pref_email_renewal','pref_email_news','pref_sms','phone','language','motd_days','motd_hour'];
   const sets = Object.keys(prefs).filter(k => allowed.includes(k)).map(k => `${k}=?`).join(', ');
   if (!sets) return;
   getDbSync().run(`UPDATE users SET ${sets} WHERE id=?`,
@@ -1724,6 +1737,46 @@ function getNextMotdToSend() {
 function getMotdRecipients() {
   return queryAll(`SELECT id,name,email FROM users WHERE pref_email_motd=1 AND email IS NOT NULL AND archived=0`);
 }
+
+// ── Per-user scheduled MOTD delivery ──
+// "Active" means: the message currently assigned to today's date. It stays
+// status='approved' the whole day it's active (not marked 'sent' the moment
+// anyone receives it) because different users are due at different hours —
+// see sendScheduledMotd() in server.js for the full flow.
+function getActiveMotdForDate(dateStr) {
+  return queryOne(`SELECT * FROM messages_of_the_day WHERE activated_date=? LIMIT 1`, [dateStr]);
+}
+// Any message left active from a previous day that never got formally closed
+// out (i.e. the server was down at rollover time, or this is the first run
+// after deploy). Finds it so the caller can mark it 'sent' before activating
+// today's.
+function getStaleActiveMotd(todayStr) {
+  return queryOne(`SELECT * FROM messages_of_the_day WHERE activated_date IS NOT NULL AND activated_date != ? AND status='approved' LIMIT 1`, [todayStr]);
+}
+function activateMotd(id, dateStr) {
+  getDbSync().run(`UPDATE messages_of_the_day SET activated_date=? WHERE id=?`, [dateStr, id]);
+  save();
+}
+// Recipients due right now: opted into email and/or SMS, whose motd_days
+// includes today's UTC day-of-week, whose motd_hour matches the current UTC
+// hour, and who haven't already received today's message (handles the cron
+// firing more than once inside the same hour). Day-substring match is safe
+// here since day values are always single digits 0-6.
+function getScheduledMotdRecipients(dayOfWeek, hour, todayStr) {
+  return queryAll(
+    `SELECT id, name, email, phone, pref_email_motd, pref_sms FROM users
+     WHERE archived=0
+       AND (pref_email_motd=1 OR pref_sms=1)
+       AND motd_days LIKE '%' || ? || '%'
+       AND motd_hour = ?
+       AND (motd_last_sent_date IS NULL OR motd_last_sent_date != ?)`,
+    [String(dayOfWeek), hour, todayStr]
+  );
+}
+function markMotdSentForUser(userId, todayStr) {
+  getDbSync().run(`UPDATE users SET motd_last_sent_date=? WHERE id=?`, [todayStr, userId]);
+  save();
+}
 // Get users who haven't been active in the last N days (for reminder emails).
 // Deduped: skips anyone reminded in the last 7 days so a persistently inactive
 // user gets nudged weekly, not every single day the cron job runs.
@@ -2066,6 +2119,7 @@ module.exports = {
   // MOTD
   addMotd, getMotd, getAllMotd, approveMotd, updateMotd, deleteMotd,
   markMotdSent, countApprovedMotd, getNextMotdToSend, getMotdRecipients,
+  getActiveMotdForDate, getStaleActiveMotd, activateMotd, getScheduledMotdRecipients, markMotdSentForUser,
   // Reminders
   getInactiveUsers,
   markReminderSent,

@@ -1,23 +1,30 @@
 // ── cron.js ──
-// Wires the three Per Bot 5 recurring jobs onto node-cron: daily MOTD send,
-// the trial email sequence (day 3 / 10 / 14), and inactivity reminders.
+// Wires the Per Bot recurring jobs onto node-cron: the hourly scheduled MOTD
+// send (per-user day/hour preferences — Per Bot 6), the trial email sequence
+// (day 3 / 10 / 14), and inactivity reminders.
 //
 // All schedules are UTC (node-cron's default, no timezone option set below).
-// Times are staggered ten minutes apart so they never overlap on a slow boot.
+// The MOTD job runs on the hour every hour so it can catch each user's
+// chosen motd_hour (0-23 UTC, default 9); the other two jobs are staggered
+// ten minutes apart within their own daily slot so they never overlap on a
+// slow boot.
 //
 // Each job is wrapped in try/catch individually — one job failing (e.g. Brevo
 // having a bad moment) must never take down the others or crash the process.
 
 const cron = require('node-cron');
 
-function startCronJobs({ db, sendDailyMotd, emailTrialDay3, emailTrialDay10, emailTrialDay14, emailInactivityReminder }) {
-  // ── Daily MOTD send — 07:00 UTC ──
-  cron.schedule('0 7 * * *', async () => {
+function startCronJobs({ db, sendScheduledMotd, emailTrialDay3, emailTrialDay10, emailTrialDay14, emailInactivityReminder }) {
+  // ── Scheduled MOTD send — hourly, on the hour ──
+  // Each run checks which users' motd_days/motd_hour match right now and
+  // sends only to them. See sendScheduledMotd() in server.js for the full
+  // per-user delivery + queue-advance logic.
+  cron.schedule('0 * * * *', async () => {
     try {
-      const result = await sendDailyMotd();
-      console.log('[cron] daily MOTD:', JSON.stringify(result));
+      const result = await sendScheduledMotd();
+      console.log('[cron] scheduled MOTD:', JSON.stringify(result));
     } catch (e) {
-      console.error('[cron] daily MOTD send failed:', e.message);
+      console.error('[cron] scheduled MOTD send failed:', e.message);
     }
   });
 
@@ -62,7 +69,7 @@ function startCronJobs({ db, sendDailyMotd, emailTrialDay3, emailTrialDay10, ema
     }
   });
 
-  console.log('[cron] scheduled: daily MOTD (07:00 UTC), trial emails (07:10 UTC), inactivity reminders (07:20 UTC)');
+  console.log('[cron] scheduled: MOTD (hourly, per-user day/hour prefs), trial emails (07:10 UTC), inactivity reminders (07:20 UTC)');
 }
 
 module.exports = { startCronJobs };

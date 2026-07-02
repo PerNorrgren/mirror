@@ -2315,9 +2315,22 @@ app.get('/api/account', auth.requireAuthApi(['client']), (req, res) => {
 // Update communication preferences and profile fields
 app.patch('/api/account', auth.requireAuthApi(['client']), (req, res) => {
   try {
-    const allowed = ['pref_email_motd','pref_email_reminders','pref_email_renewal','pref_email_news','pref_sms','phone','language'];
+    const allowed = ['pref_email_motd','pref_email_reminders','pref_email_renewal','pref_email_news','pref_sms','phone','language','motd_days','motd_hour'];
     const prefs = {};
     allowed.forEach(k => { if (req.body[k] !== undefined) prefs[k] = req.body[k]; });
+    // Light validation — bad values here would silently break someone's schedule
+    // (e.g. never matching any cron run), so reject rather than store garbage.
+    if (prefs.motd_days !== undefined) {
+      const days = String(prefs.motd_days).split(',').map(d => d.trim()).filter(Boolean);
+      const valid = days.length > 0 && days.every(d => /^[0-6]$/.test(d));
+      if (!valid) return res.status(400).json({ error: 'motd_days must be comma-separated digits 0-6.' });
+      prefs.motd_days = days.join(',');
+    }
+    if (prefs.motd_hour !== undefined) {
+      const hour = parseInt(prefs.motd_hour, 10);
+      if (!Number.isInteger(hour) || hour < 0 || hour > 23) return res.status(400).json({ error: 'motd_hour must be 0-23.' });
+      prefs.motd_hour = hour;
+    }
     if (Object.keys(prefs).length) db.updateUserPreferences(req.user.id, prefs);
     // Name update
     if (req.body.name && req.body.name.trim()) {
@@ -2757,12 +2770,24 @@ function buildMotdHtml(body, b) {
       </div>`;
 }
 
-// ── MOTD send — the actual send logic, callable directly (cron) or via the ──
-// admin endpoint below (manual trigger / testing). Kept as one function so
-// there's exactly one place this logic lives.
+// ── MOTD send — manual/admin override ── Used by the "Send today's message"
+// admin button. Broadcasts IMMEDIATELY to every currently opted-in recipient,
+// ignoring each person's chosen day/hour — this is a deliberate override for
+// emergencies or one-off testing, not part of the per-user schedule below.
+// Operates on whichever message is already "today's active" one (so it
+// doesn't fight with sendScheduledMotd() over which message is current); if
+// nothing has been activated yet today, it activates the next queued one
+// itself. Either way it finalises that message as 'sent' immediately,
+// ending its day early for anyone still waiting on their scheduled hour —
+// acceptable for a manual override, not for the automatic hourly sender.
 async function sendDailyMotd() {
-  const motd = db.getNextMotdToSend();
-  if (!motd) return { ok: true, sent: 0, note: 'No approved messages in queue.' };
+  const today = new Date().toISOString().slice(0, 10);
+  let motd = db.getActiveMotdForDate(today);
+  if (!motd) {
+    motd = db.getNextMotdToSend();
+    if (!motd) return { ok: true, sent: 0, note: 'No approved messages in queue.' };
+    db.activateMotd(motd.id, today);
+  }
 
   const recipients = db.getMotdRecipients();
   if (!recipients.length) {
@@ -2794,6 +2819,83 @@ async function sendDailyMotd() {
   }
 
   return { ok: true, sent, remaining, lowStock: remaining <= 5 };
+}
+
+// ── MOTD send — scheduled, per-user ── This is the real automatic daily
+// driver, run hourly by cron (see cron.js). It replaces the old fixed
+// 07:00 UTC broadcast with per-user day-of-week + hour preferences
+// (motd_days / motd_hour on the user, default every day at 09:00 UTC).
+//
+// HOW THE QUEUE ADVANCES: a message becomes "active" for a calendar date
+// (activated_date) rather than being marked 'sent' the instant everyone's
+// received it — different users are due at different hours, sometimes
+// different days, so "everyone's received it" may never happen for a
+// message that some users have opted out of on their scheduled days. The
+// message stays active for its whole UTC calendar day, then gets retired
+// (marked 'sent') the next time this function runs and finds a stale
+// activated_date — at which point the next queued message activates.
+// A user whose motd_days excludes today simply doesn't get today's message
+// and picks up again on their next matching day — this is the intended
+// behaviour of a day-of-week preference, not a bug.
+//
+// TIMEZONE NOTE: motd_hour is UTC. There's no per-user timezone stored yet,
+// so "09:00" means 09:00 UTC for everyone regardless of where they are —
+// worth flagging to Per as a future decision if international members
+// start asking for local-time delivery.
+async function sendScheduledMotd() {
+  const now   = new Date();
+  const today = now.toISOString().slice(0, 10);
+
+  let active = db.getActiveMotdForDate(today);
+  let activatedNewMessage = false;
+
+  if (!active) {
+    // Retire yesterday's (or older) active message if one was left dangling
+    const stale = db.getStaleActiveMotd(today);
+    if (stale) db.markMotdSent(stale.id);
+
+    const next = db.getNextMotdToSend();
+    if (!next) return { ok: true, sent: 0, note: 'No approved messages in queue.' };
+    db.activateMotd(next.id, today);
+    active = db.getMotd(next.id);
+    activatedNewMessage = true;
+  }
+
+  const dueDay  = now.getUTCDay();   // 0=Sunday..6=Saturday
+  const dueHour = now.getUTCHours(); // 0-23 UTC
+  const recipients = db.getScheduledMotdRecipients(dueDay, dueHour, today);
+
+  const b = brand();
+  let sentEmail = 0, sentSms = 0;
+  for (const user of recipients) {
+    if (user.pref_email_motd && user.email) {
+      await sendEmail(user.email, `From ${b.name} — a moment for today`, buildMotdHtml(active.body, b));
+      sentEmail++;
+    }
+    if (user.pref_sms && user.phone) {
+      const result = await sms.sendSms(user.phone, `${b.name}: ${active.body}`);
+      if (result.ok) sentSms++;
+    }
+    db.markMotdSentForUser(user.id, today);
+  }
+
+  // Low-stock alert fires once, at the moment a new message gets activated —
+  // not every hour, since queue depth only actually changes on activation.
+  if (activatedNewMessage) {
+    const remaining = db.countApprovedMotd();
+    if (remaining <= 5) {
+      await sendEmail(process.env.ADMIN_EMAIL || 'per@deepermindfulness.org',
+        `⚠️ MOTD queue — ${remaining} message${remaining === 1 ? '' : 's'} remaining`,
+        `<div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;padding:32px">
+          <p>Today's message has just gone active, delivered on each recipient's own schedule through the day.</p>
+          <p>Only <strong>${remaining}</strong> approved message${remaining === 1 ? '' : 's'} left. Please add more.</p>
+          <p><a href="${APP_URL}/admin/">${APP_URL}/admin/</a></p>
+        </div>`
+      );
+    }
+  }
+
+  return { ok: true, activeMessageId: active.id, sentEmail, sentSms, dueDay, dueHour };
 }
 
 // Manual/admin trigger — same logic as the cron job, for testing or one-off sends.
@@ -2879,6 +2981,6 @@ app.use((err, req, res, next) => {
     db.createFacilitator(uuidv4(), adminName, adminEmail, hash, 'admin');
     console.log(`Admin created: ${adminEmail}`);
   }
-  startCronJobs({ db, sendDailyMotd, emailTrialDay3, emailTrialDay10, emailTrialDay14, emailInactivityReminder });
+  startCronJobs({ db, sendScheduledMotd, emailTrialDay3, emailTrialDay10, emailTrialDay14, emailInactivityReminder });
   server.listen(PORT, () => console.log(`Per Bot running on port ${PORT}`));
 })();
