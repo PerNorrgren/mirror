@@ -1336,6 +1336,29 @@ function registerUser(id, name, email, passwordHash) {
   save();
 }
 
+// ── Mailing-list import (Per Bot 6) ── Distinct from registerUser: no
+// password, no trial, no member_tier — a passive email-only contact who
+// subscribed to the newsletter list before Per Bot existed, not someone who
+// registered on the platform. Explorer tier (0), opted into news only —
+// every other email preference starts OFF, since they never asked for
+// daily messages, reminders, or renewal notices; only the newsletter they
+// actually signed up for. must_change_password=0 so nothing forces a
+// password flow they never started. lawful_basis records plainly that this
+// is a carried-over mailing list relationship, not a Per Bot registration —
+// factual record-keeping, not a legal opinion on adequacy.
+function createMailingListContact(id, name, email) {
+  getDbSync().run(
+    `INSERT INTO users
+       (id,name,email,password_hash,facilitator_id,arc,archived,must_change_password,
+        member_tier,is_client,is_system_client,
+        pref_email_motd,pref_email_reminders,pref_email_renewal,pref_email_news,pref_sms,
+        lawful_basis)
+     VALUES (?,?,?,NULL,NULL,'',0,0, 0,0,0, 0,0,0,1,0, 'Existing mailing list — imported, not registered via Per Bot')`,
+    [id, name, email.toLowerCase()]
+  );
+  save();
+}
+
 // ── Trial expiry ──
 // Called on every login for client-role users. If a trial has lapsed and no paid
 // subscription picked it up (no stripe_subscription_id), drop back to Explorer.
@@ -2251,7 +2274,7 @@ module.exports = {
   // User playlists
   createUserPlaylist, getUserPlaylists, addToUserPlaylist, removeFromUserPlaylist, deleteUserPlaylist, renameUserPlaylist,
   // Registration
-  registerUser,
+  registerUser, createMailingListContact,
   checkTrialExpiry,
   // Content visibility
   getLibraryFilesForUser, getAllLibraryFilesWithAccess, canAccessFile, getFacilitatorResources,
