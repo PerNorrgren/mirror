@@ -331,6 +331,12 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message, sessionId })
       });
+      if (r.status === 403) {
+        busy = false;
+        setState('');
+        showWelcomeModal();
+        return;
+      }
       const data  = await r.json();
       const reply = data.reply || '';
       if (reply) {
@@ -430,7 +436,12 @@
     const el = document.getElementById('contentList');
     el.innerHTML = '<div class="no-content">Loading…</div>';
     try {
-      const r    = await fetch('/api/guest/content');
+      const r = await fetch('/api/guest/content');
+      if (r.status === 403) {
+        el.innerHTML = '<div class="no-content">Tell us a little about you first.</div>';
+        showWelcomeModal();
+        return;
+      }
       const list = await r.json();
       if (!list.length) { el.innerHTML = '<div class="no-content">No content yet.</div>'; return; }
       el.innerHTML = list.map(item => `
@@ -491,12 +502,24 @@
     btn.textContent = 'Starting…';
 
     try {
-      await fetch('/api/guest/lead', {
+      const r = await fetch('/api/guest/lead', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email })
       });
-    } catch(e) {}
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        errorEl.textContent = data.error || 'Something went wrong — please try again.';
+        btn.disabled = false;
+        btn.textContent = 'Continue';
+        return;
+      }
+    } catch(e) {
+      errorEl.textContent = 'Something went wrong — please try again.';
+      btn.disabled = false;
+      btn.textContent = 'Continue';
+      return;
+    }
 
     document.getElementById('welcomeModal').classList.remove('visible');
     // Now start the bot

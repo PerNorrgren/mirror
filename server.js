@@ -1380,12 +1380,25 @@ app.post('/api/chat', auth.requireAuthApi(['client']), async (req, res) => {
   }
 });
 
-// ── /api/guest/lead — capture name + email, no auth ──
+// ── /api/guest/lead — capture name + email, issues the guest identity ──
+// cookie on success. Per doesn't want anonymous browsing-only access — this
+// used to accept empty submissions silently; now it's the actual gate that
+// requireGuestIdentity() checks for on the content/chat endpoints below.
 app.post('/api/guest/lead', async (req, res) => {
   try {
     const { name, email } = req.body;
-    if (!email && !name) return res.json({ ok: true }); // both empty — skip silently
-    db.addGuestLead(uuidv4(), name?.trim() || null, email?.trim()?.toLowerCase() || null, 'guest_page');
+    if (!name || !name.trim())  return res.status(400).json({ error: 'Please enter your name.' });
+    if (!email || !email.trim().includes('@')) return res.status(400).json({ error: 'Please enter a valid email.' });
+
+    const trimmedName  = name.trim();
+    const trimmedEmail = email.trim().toLowerCase();
+    const leadId = uuidv4();
+
+    db.addGuestLead(leadId, trimmedName, trimmedEmail, 'guest_page');
+
+    const token = auth.createGuestToken({ type: 'guest', leadId, name: trimmedName, email: trimmedEmail });
+    res.cookie(auth.GUEST_COOKIE_NAME, token, auth.GUEST_COOKIE_OPTIONS);
+
     res.json({ ok: true });
   } catch(e) {
     console.error('guest lead error:', e);
@@ -1393,15 +1406,14 @@ app.post('/api/guest/lead', async (req, res) => {
   }
 });
 
-// ── /api/guest/content — no auth. Was referenced by public/guest/index.html ──
-// but never actually built, which is why guest browsing has been broken (Per
-// Bot 5, item 10). A guest has no user record and no role, so we use the same
-// flags an unregistered Explorer would have — level 0 ("registered" tier) —
-// via userFlagsFromRecord(null, null). getAllLibraryFilesWithAccess tags every
+// ── /api/guest/content — requires guest identity (see requireGuestIdentity ──
+// above). A guest has no user record and no role, so we use the same flags
+// an unregistered Explorer would have — level 0 ("registered" tier) — via
+// userFlagsFromRecord(null, null). getAllLibraryFilesWithAccess tags every
 // file with `accessible` rather than filtering, so locked (higher-tier) items
 // still show up with the lock icon the guest page already renders for them —
 // that's the existing frontend behaviour, this just supplies the data it expects.
-app.get('/api/guest/content', (req, res) => {
+app.get('/api/guest/content', auth.requireGuestIdentity(), (req, res) => {
   try {
     const userFlags = db.userFlagsFromRecord(null, null);
     const files = db.getAllLibraryFilesWithAccess(userFlags);
@@ -1722,10 +1734,10 @@ app.delete('/api/admin/guest-leads/:id', auth.requireAuthApi(['admin']), (req, r
   res.json({ ok: true });
 });
 
-// ── /api/guest/chat — no auth, same bot, lighter system prompt ──
+// ── /api/guest/chat — requires guest identity, same bot, lighter system prompt ──
 const guestSessions = new Map();
 
-app.post('/api/guest/chat', async (req, res) => {
+app.post('/api/guest/chat', auth.requireGuestIdentity(), async (req, res) => {
   try {
     const { message, sessionId } = req.body;
     if (!guestSessions.has(sessionId)) {

@@ -11,6 +11,21 @@ const COOKIE_OPTIONS = {
   maxAge: 24 * 60 * 60 * 1000 // 24 hours
 };
 
+// ── Guest identity ── Separate, lightweight cookie proving a site visitor
+// has actually given a name and email before browsing content or talking to
+// the bot — Per doesn't want anonymous browsing-only access. Distinct from
+// COOKIE_NAME/perbot_session on purpose: a guest is not a user record and
+// has no role, so mixing it into the real session cookie would blur that
+// line. 30-day expiry, longer than a real login session, since someone
+// exploring over several visits shouldn't have to re-identify every day.
+const GUEST_COOKIE_NAME = 'perbot_guest';
+const GUEST_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax',
+  maxAge: 30 * 24 * 60 * 60 * 1000
+};
+
 // ── Hash and verify passwords ──
 async function hashPassword(password) {
   return bcrypt.hash(password, 12);
@@ -31,6 +46,30 @@ function verifyToken(token) {
   } catch {
     return null;
   }
+}
+
+// Guests get a longer-lived, dedicated token — not signed via createToken()
+// above since that hardcodes a 24h expiry meant for real logins.
+function createGuestToken(payload) {
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' });
+}
+
+// ── Middleware: require a guest to have identified themselves ──
+// Used on guest content/chat endpoints. A missing or invalid token means
+// they haven't submitted the name+email form yet — respond with a specific
+// error code the frontend checks for, so it can show the identify form
+// instead of a generic broken-page error.
+function requireGuestIdentity() {
+  return (req, res, next) => {
+    const token = req.cookies?.[GUEST_COOKIE_NAME];
+    if (!token) return res.status(403).json({ error: 'not_identified' });
+
+    const payload = verifyToken(token);
+    if (!payload || payload.type !== 'guest') return res.status(403).json({ error: 'not_identified' });
+
+    req.guest = payload;
+    next();
+  };
 }
 
 // ── Login: find user across all roles ──
@@ -110,4 +149,8 @@ module.exports = {
   requireAuthApi,
   COOKIE_NAME,
   COOKIE_OPTIONS,
+  createGuestToken,
+  requireGuestIdentity,
+  GUEST_COOKIE_NAME,
+  GUEST_COOKIE_OPTIONS,
 };
