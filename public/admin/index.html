@@ -73,6 +73,16 @@
     .modal label { font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:rgba(255,255,255,0.35); display:block; margin-bottom:5px; }
     .modal input { width:100%; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:8px; padding:10px 13px; font-size:14px; color:rgba(255,255,255,0.82); font-family:'Georgia',serif; outline:none; }
     .modal input:focus { border-color:rgba(180,230,200,0.3); }
+    .modal select {
+      width:100%; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);
+      border-radius:8px; padding:10px 13px; font-size:14px; color:rgba(255,255,255,0.82);
+      font-family:'Georgia',serif; outline:none;
+    }
+    .modal select:focus { border-color:rgba(180,230,200,0.3); }
+    .bulk-check-row { display:flex; align-items:flex-start; gap:9px; }
+    .bulk-check-row input[type=checkbox] { width:auto; margin-top:3px; }
+    .bulk-warn { font-size:12px; color:rgba(255,180,120,0.75); line-height:1.6; margin-top:6px; }
+    .bulk-summary { background:rgba(255,255,255,0.05); border-radius:9px; padding:14px 16px; font-size:13px; line-height:1.8; color:rgba(255,255,255,0.75); }
     .modal-note { font-size:12px; color:rgba(255,255,255,0.3); line-height:1.6; }
     .modal-err { font-size:12px; color:rgba(255,120,100,0.8); min-height:16px; }
     .modal-btns { display:flex; gap:10px; justify-content:flex-end; margin-top:4px; }
@@ -170,6 +180,7 @@
           <div class="card-title">Members</div>
           <div style="display:flex;gap:8px;align-items:center">
             <button class="btn sm" onclick="openModal('newMemberModal')">Add Member</button>
+            <button class="btn sm" onclick="openBulkImportModal()">Bulk Import</button>
             <button class="btn sm disabled" id="memberEditBtn" onclick="editSelectedMember()">Edit</button>
             <button class="btn sm danger disabled" id="memberDelBtn" onclick="deleteSelectedMembers()">Delete</button>
           </div>
@@ -376,6 +387,55 @@
       <div class="modal-btns">
         <button class="modal-cancel" onclick="closeModal('newMemberModal')">Cancel</button>
         <button class="modal-ok" onclick="createMember()">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bulk Import Modal -->
+  <div class="modal-overlay" id="bulkImportModal">
+    <div class="modal" id="bulkImportForm">
+      <h3>Bulk import members</h3>
+      <div class="modal-note" style="margin-bottom:14px">Upload a CSV with name and email columns (most common header names are recognised automatically). Everyone in the file is added at the same level below.</div>
+
+      <div>
+        <label>CSV file</label>
+        <input type="file" id="bulkFile" accept=".csv"/>
+      </div>
+
+      <div style="margin-top:14px">
+        <label>Start everyone at</label>
+        <select id="bulkTier" onchange="toggleBulkTrialField()">
+          <option value="0">Explorer (free)</option>
+          <option value="1">Member 1</option>
+          <option value="2">Member 2</option>
+          <option value="3">Member 3</option>
+        </select>
+      </div>
+
+      <div style="margin-top:14px" id="bulkTrialField">
+        <label>Free weeks before it expires</label>
+        <input type="number" id="bulkTrialWeeks" value="2" min="0" step="1"/>
+        <div class="modal-note" style="margin-top:6px">0 = permanent, no automatic expiry (an admin-granted membership, not a trial). Otherwise it behaves exactly like a normal trial and quietly reverts to Explorer if it lapses with no active subscription.</div>
+      </div>
+
+      <div style="margin-top:16px" class="bulk-check-row">
+        <input type="checkbox" id="bulkSendWelcome" checked onchange="toggleBulkWelcomeWarning()"/>
+        <label style="text-transform:none;letter-spacing:normal;font-size:13px;color:rgba(255,255,255,0.7);margin-bottom:0">Send a welcome email with login details to each new person</label>
+      </div>
+      <div class="bulk-warn" id="bulkWelcomeWarning" style="display:none">If you leave this off, these accounts are created with a password nobody is told — they'll have no way to log in until you reset a password for them individually later. There's no self-serve "forgot password" yet.</div>
+
+      <div class="modal-err" id="bulkImportErr"></div>
+      <div class="modal-btns">
+        <button class="modal-cancel" onclick="closeModal('bulkImportModal')">Cancel</button>
+        <button class="modal-ok" id="bulkImportBtn" onclick="runBulkImport()">Import</button>
+      </div>
+    </div>
+
+    <div class="modal" id="bulkImportResult" style="display:none">
+      <h3>Import complete</h3>
+      <div class="bulk-summary" id="bulkImportSummary"></div>
+      <div class="modal-btns">
+        <button class="modal-ok" onclick="closeModal('bulkImportModal'); loadMembers();">Done</button>
       </div>
     </div>
   </div>
@@ -775,6 +835,70 @@
     err.textContent = '';
     document.getElementById('memberTempPassValue').textContent = data.tempPassword || '';
     openModal('memberCreatedModal');
+  }
+
+  // ── Bulk member import ──
+  function openBulkImportModal() {
+    document.getElementById('bulkFile').value = '';
+    document.getElementById('bulkTier').value = '0';
+    document.getElementById('bulkTrialWeeks').value = '2';
+    document.getElementById('bulkSendWelcome').checked = true;
+    document.getElementById('bulkImportErr').textContent = '';
+    document.getElementById('bulkImportForm').style.display = '';
+    document.getElementById('bulkImportResult').style.display = 'none';
+    toggleBulkTrialField();
+    toggleBulkWelcomeWarning();
+    openModal('bulkImportModal');
+  }
+
+  function toggleBulkTrialField() {
+    const isExplorer = document.getElementById('bulkTier').value === '0';
+    document.getElementById('bulkTrialField').style.display = isExplorer ? 'none' : '';
+  }
+
+  function toggleBulkWelcomeWarning() {
+    const checked = document.getElementById('bulkSendWelcome').checked;
+    document.getElementById('bulkWelcomeWarning').style.display = checked ? 'none' : 'block';
+  }
+
+  async function runBulkImport() {
+    const fileInput = document.getElementById('bulkFile');
+    const err = document.getElementById('bulkImportErr');
+    if (!fileInput.files.length) { err.textContent = 'Choose a CSV file first.'; return; }
+
+    const tier = document.getElementById('bulkTier').value;
+    const trialWeeks = tier === '0' ? '0' : document.getElementById('bulkTrialWeeks').value;
+    const sendWelcomeEmail = document.getElementById('bulkSendWelcome').checked;
+
+    const btn = document.getElementById('bulkImportBtn');
+    btn.disabled = true; btn.textContent = 'Importing…';
+    err.textContent = '';
+
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    formData.append('tier', tier);
+    formData.append('trialWeeks', trialWeeks);
+    formData.append('sendWelcomeEmail', sendWelcomeEmail ? '1' : '0');
+
+    try {
+      const res  = await fetch('/api/admin/members/bulk-import', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!data.ok) { err.textContent = data.error || 'Import failed.'; btn.disabled = false; btn.textContent = 'Import'; return; }
+
+      const tierNames = { '0': 'Explorer', '1': 'Member 1', '2': 'Member 2', '3': 'Member 3' };
+      document.getElementById('bulkImportSummary').innerHTML = `
+        <div><strong>${data.created}</strong> new account${data.created === 1 ? '' : 's'} created at ${tierNames[tier]}</div>
+        <div>${data.alreadyExisted} already had an account — left untouched</div>
+        <div>${data.invalid} row${data.invalid === 1 ? '' : 's'} skipped — no valid email</div>
+        <div style="margin-top:8px;color:rgba(255,255,255,0.5)">${data.emailQueueCount > 0 ? `Welcome emails are sending in the background to ${data.emailQueueCount} ${data.emailQueueCount === 1 ? 'person' : 'people'} now.` : 'No welcome emails were sent.'}</div>
+      `;
+      document.getElementById('bulkImportForm').style.display = 'none';
+      document.getElementById('bulkImportResult').style.display = '';
+    } catch(e) {
+      err.textContent = 'Network error — please try again.';
+    } finally {
+      btn.disabled = false; btn.textContent = 'Import';
+    }
   }
   async function saveEditFac() {
     const id=document.getElementById('editFacId').value, name=document.getElementById('editFacName').value.trim(), email=document.getElementById('editFacEmail').value.trim(), err=document.getElementById('editFacErr');

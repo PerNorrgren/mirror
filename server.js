@@ -4,6 +4,7 @@ const WebSocket  = require('ws');
 const path       = require('path');
 const fs         = require('fs');
 const multer     = require('multer');
+const { parse: csvParse } = require('csv-parse/sync');
 const { v4: uuidv4 } = require('uuid');
 const fetch      = require('node-fetch');
 const cookieParser = require('cookie-parser');
@@ -781,6 +782,108 @@ app.post('/api/admin/members', auth.requireAuthApi(['admin']), async (req, res) 
   } catch(e) {
     console.error('add member error:', e);
     res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+});
+
+// ── Bulk member import ── CSV upload, applied as one batch: every valid row
+// becomes an account at the SAME tier, with the SAME trial length, and
+// either all get a welcome email or none do — this is a batch tool for
+// "here's a spreadsheet of people, bring them in at level X", not a
+// per-row-customisable importer. Column headers are matched flexibly
+// (name/Name/Full Name, email/Email/Subscriber) so exports from different
+// places don't need reformatting first.
+//
+// Unlike the mailing-list-only import (createMailingListContact — no
+// password, no login), every account created here gets a real password and
+// can log in, because these are actual Explorer/Member accounts, not
+// passive newsletter contacts.
+//
+// Welcome emails are sent AFTER responding to the request, not awaited
+// inline — a few hundred individual Scaleway sends would otherwise risk
+// the request itself timing out. The response tells you how many were
+// created immediately; the emails follow shortly after in the background.
+app.post('/api/admin/members/bulk-import', auth.requireAuthApi(['admin']), upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
+
+    const tier = parseInt(req.body.tier, 10);
+    if (![0, 1, 2, 3].includes(tier)) return res.status(400).json({ error: 'Invalid tier.' });
+    const trialWeeks = Math.max(0, parseInt(req.body.trialWeeks, 10) || 0);
+    const sendWelcomeEmail = req.body.sendWelcomeEmail === 'true' || req.body.sendWelcomeEmail === '1';
+
+    let rows;
+    try {
+      const content = fs.readFileSync(req.file.path, 'utf8');
+      rows = csvParse(content, { columns: true, skip_empty_lines: true, trim: true });
+    } catch (e) {
+      fs.unlink(req.file.path, () => {});
+      return res.status(400).json({ error: 'Could not read that as a CSV file: ' + e.message });
+    }
+
+    // Matches header variants like "Full Name", "email_address", "Subscriber"
+    // by stripping everything but letters and comparing lowercase.
+    const findCol = (row, candidates) => {
+      const keys = Object.keys(row);
+      for (const c of candidates) {
+        const match = keys.find(k => k.toLowerCase().replace(/[^a-z]/g, '') === c);
+        if (match && row[match]) return row[match].trim();
+      }
+      return '';
+    };
+
+    let created = 0, alreadyExisted = 0, invalid = 0;
+    const toEmail = [];
+
+    for (const row of rows) {
+      const email = findCol(row, ['email', 'subscriber', 'emailaddress']).toLowerCase();
+      if (!email || !email.includes('@')) { invalid++; continue; }
+
+      if (db.getFacilitatorByEmail(email) || db.getUserByEmail(email)) { alreadyExisted++; continue; }
+
+      const first = findCol(row, ['name', 'fullname', 'firstname']);
+      const last  = findCol(row, ['lastname']);
+      const name  = [first, last].filter(Boolean).join(' ').trim() || email;
+
+      const id = uuidv4();
+      const tempPassword = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6).toUpperCase();
+      const passwordHash = await auth.hashPassword(tempPassword);
+
+      db.createUser(id, name, null, email, passwordHash, null, null, {
+        consentGiven: true, consentVersion: 'admin-bulk-import-v1', lawfulBasis: 'consent'
+      });
+
+      if (tier > 0) {
+        const trialEndsAt = trialWeeks > 0 ? new Date(Date.now() + trialWeeks * 7 * 24 * 60 * 60 * 1000).toISOString() : null;
+        db.setMemberTier(id, tier, null, trialEndsAt, null, null);
+      }
+
+      created++;
+      if (sendWelcomeEmail) toEmail.push({ name, email, tempPassword });
+    }
+
+    fs.unlink(req.file.path, () => {});
+
+    res.json({
+      ok: true,
+      created, alreadyExisted, invalid,
+      totalRows: rows.length,
+      emailQueueCount: toEmail.length,
+    });
+
+    if (toEmail.length) {
+      (async () => {
+        let sent = 0;
+        for (const u of toEmail) {
+          try { await emailWelcomeClient(u.name, u.email, u.tempPassword); sent++; }
+          catch (e) { console.error('bulk-import welcome email failed for', u.email, e.message); }
+        }
+        console.log(`[bulk-import] welcome emails sent: ${sent}/${toEmail.length}`);
+      })();
+    }
+  } catch (e) {
+    console.error('bulk import error:', e);
+    if (req.file) fs.unlink(req.file.path, () => {});
+    res.status(500).json({ error: 'Something went wrong during import.' });
   }
 });
 
