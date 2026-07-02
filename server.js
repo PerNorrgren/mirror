@@ -572,6 +572,7 @@ function emailFacilitatorRequestDeferred(request) {
 
 app.get('/login',    (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
 app.get('/register', (req, res) => res.sendFile(path.join(__dirname, 'public', 'register.html')));
+app.get('/join/:token', (req, res) => res.sendFile(path.join(__dirname, 'public', 'join.html')));
 app.get('/register/',(req, res) => res.sendFile(path.join(__dirname, 'public', 'register.html')));
 app.get('/change-password', (req, res) => res.sendFile(path.join(__dirname, 'public', 'change-password.html')));
 // Shared client-side brand injection — see public/brand-inject.js. This is the
@@ -673,6 +674,52 @@ app.post('/api/register', async (req, res) => {
     res.json({ redirect: '/client/' });
   } catch(e) {
     console.error('register error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+});
+
+// ── Magic-link invite claim (Per Bot 6) ── A newsletter-only contact clicks
+// their personal /join/:token link from a newsletter and lands as a real
+// Member — trial is fixed at 14 days, but critically the clock only starts
+// HERE, at the moment they actually claim it, not when the link was
+// generated or the newsletter was sent. The token itself never expires on
+// a timer; only using it does (invite_token_used_at) — someone opening the
+// link two weeks after it arrived still gets a full, fresh trial.
+app.get('/api/invite/:token', (req, res) => {
+  try {
+    const user = db.getUserByInviteToken(req.params.token);
+    if (!user) return res.status(404).json({ error: 'invalid' });
+    if (user.invite_token_used_at) return res.status(410).json({ error: 'used' });
+    res.json({ name: user.name, email: user.email });
+  } catch(e) {
+    console.error('invite lookup error:', e);
+    res.status(500).json({ error: 'Something went wrong.' });
+  }
+});
+
+app.post('/api/invite/:token/claim', async (req, res) => {
+  try {
+    const user = db.getUserByInviteToken(req.params.token);
+    if (!user) return res.status(404).json({ error: 'invalid' });
+    if (user.invite_token_used_at) return res.status(410).json({ error: 'used' });
+
+    let { name, password } = req.body;
+    name = (name && name.trim()) || user.name;
+    if (!password || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+
+    const hash = await auth.hashPassword(password);
+    db.updateClientPassword(user.id, hash);
+    if (name !== user.name) db.updateUserName(user.id, name);
+
+    const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+    db.setMemberTier(user.id, 1, null, trialEndsAt, null, null);
+    db.markInviteTokenUsed(user.id);
+
+    const token = auth.createToken({ role: 'client', id: user.id, name, email: user.email });
+    res.cookie(auth.COOKIE_NAME, token, auth.COOKIE_OPTIONS);
+    res.json({ ok: true, redirect: '/client/' });
+  } catch(e) {
+    console.error('invite claim error:', e);
     res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });
@@ -2558,9 +2605,15 @@ app.patch('/api/account', auth.requireAuthApi(['client']), (req, res) => {
     }
 
     if (Object.keys(prefs).length) db.updateUserPreferences(req.user.id, prefs);
-    // Name update
+    // Name update — updateUserName only touches the name column. The old
+    // call here used updateClientDetails(id, name, null, null), which sets
+    // email and facilitator_id unconditionally — including to null. That
+    // meant anyone using "Save changes" on their name in My Account had
+    // their email silently wiped every time. Live bug, not hypothetical —
+    // fixed as part of the invite-link work below, which needed a safe
+    // name-only update anyway.
     if (req.body.name && req.body.name.trim()) {
-      db.updateClientDetails(req.user.id, req.body.name.trim(), null, null);
+      db.updateUserName(req.user.id, req.body.name.trim());
     }
     res.json({ ok: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -3407,8 +3460,16 @@ app.post('/api/admin/newsletters/test-send', auth.requireAuthApi(['admin']), asy
     const toEmail = (to && to.trim()) || req.user.email;
     if (!toEmail) return res.status(400).json({ error: 'No address to send to.' });
 
+    // Preview only — there's no real recipient for a test send, so
+    // {{invite_link}} resolves to an obviously-fake example link rather than
+    // minting a real token, and {{name}} uses the admin's own name so the
+    // substitution is at least visibly working before a real send.
+    const previewLink = `${APP_URL}/join/EXAMPLE-TOKEN-not-a-real-link`;
+    const subjectFilled = subject.trim().split('{{name}}').join(req.user.name || 'there').split('{{invite_link}}').join(previewLink);
+    const bodyFilled    = body.trim().split('{{name}}').join(req.user.name || 'there').split('{{invite_link}}').join(previewLink);
+
     const b = brand();
-    await sendEmail(toEmail, `[TEST] ${subject.trim()}`, buildNewsletterHtml(subject.trim(), body.trim(), b));
+    await sendEmail(toEmail, `[TEST] ${subjectFilled}`, buildNewsletterHtml(subjectFilled, bodyFilled, b));
     res.json({ ok: true, to: toEmail });
   } catch (e) {
     console.error('newsletter test-send error:', e.message);
@@ -3421,6 +3482,13 @@ app.post('/api/admin/newsletters/test-send', auth.requireAuthApi(['admin']), asy
 // the newsletter to already be saved as a draft (so there's a permanent
 // record of exactly what was sent, to whom, and how many people), then
 // marks it 'sent' and locks it against further edits.
+//
+// Supports two placeholders in subject/body: {{name}} and {{invite_link}}.
+// {{invite_link}} resolves differently per recipient — someone with no
+// login yet gets their personal /join/:token claim link (generated here if
+// they don't already have one); someone who already has a real account just
+// gets pointed at /login. This is what makes a single "come try it" send
+// work correctly across a mixed audience without composing two newsletters.
 app.post('/api/admin/newsletters/:id/send', auth.requireAuthApi(['admin']), async (req, res) => {
   try {
     const newsletter = db.getNewsletter(req.params.id);
@@ -3429,11 +3497,18 @@ app.post('/api/admin/newsletters/:id/send', auth.requireAuthApi(['admin']), asyn
 
     const recipients = db.getNewsletterRecipients(newsletter.audience);
     const b = brand();
-    const html = buildNewsletterHtml(newsletter.subject, newsletter.body, b);
 
     let sent = 0;
     for (const user of recipients) {
-      await sendEmail(user.email, newsletter.subject, html);
+      const inviteLink = user.has_login
+        ? `${APP_URL}/login`
+        : `${APP_URL}/join/${db.ensureInviteToken(user.id)}`;
+
+      const subject = newsletter.subject.split('{{name}}').join(user.name || '').split('{{invite_link}}').join(inviteLink);
+      const body    = newsletter.body.split('{{name}}').join(user.name || '').split('{{invite_link}}').join(inviteLink);
+      const html    = buildNewsletterHtml(subject, body, b);
+
+      await sendEmail(user.email, subject, html);
       sent++;
     }
 

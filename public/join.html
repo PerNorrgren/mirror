@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Deeper Mindfulness — Join</title>
+  <script src="/brand-inject.js"></script>
+  <style>
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    html, body { width:100%; height:100%; font-family:'Georgia',serif; background:#0a0f0d; display:flex; align-items:center; justify-content:center; }
+
+    .slideshow { position:fixed; inset:0; z-index:0; }
+    .slide { position:absolute; inset:0; background-size:cover; background-position:center; opacity:0; transition:opacity 3s ease-in-out; }
+    .slide.active { opacity:1; }
+    .veil { position:fixed; inset:0; z-index:1; background:rgba(0,0,0,0.5); }
+    .panel { position:relative; z-index:2; width:100%; max-width:400px; padding:20px; }
+
+    .glass {
+      background:rgba(255,255,255,0.07);
+      backdrop-filter:blur(24px); -webkit-backdrop-filter:blur(24px);
+      border:1px solid rgba(255,255,255,0.12);
+      border-radius:20px; padding:36px 32px;
+      display:flex; flex-direction:column; gap:20px;
+    }
+
+    .wordmark { text-align:center; }
+    .wordmark-main { font-size:11px; letter-spacing:0.25em; text-transform:uppercase; color:rgba(255,255,255,0.4); display:block; }
+    .wordmark-sub  { font-size:20px; color:rgba(255,255,255,0.8); display:block; margin-top:6px; }
+    .wordmark-desc { font-size:13px; color:rgba(255,255,255,0.3); display:block; margin-top:8px; line-height:1.6; }
+
+    .field { display:flex; flex-direction:column; gap:6px; }
+    .field label { font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:rgba(255,255,255,0.35); }
+    .field input {
+      background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12);
+      border-radius:10px; padding:12px 14px; font-size:15px;
+      color:rgba(255,255,255,0.85); font-family:'Georgia',serif; outline:none;
+      transition:border-color 0.2s; width:100%;
+    }
+    .field input:focus { border-color:rgba(180,230,200,0.4); }
+    .field input::placeholder { color:rgba(255,255,255,0.2); }
+    .field input:read-only { opacity:0.55; cursor:default; }
+
+    .generate-link { font-size:12px; color:rgba(180,230,200,0.6); text-decoration:none; align-self:flex-start; cursor:pointer; }
+    .generate-link:hover { color:rgba(180,230,200,0.9); }
+
+    .trial-note { font-size:12px; color:rgba(180,230,200,0.55); line-height:1.6; text-align:center; }
+
+    .error { font-size:13px; color:rgba(255,140,120,0.85); text-align:center; min-height:18px; }
+
+    .submit-btn {
+      width:100%; padding:13px; border-radius:10px;
+      border:1px solid rgba(180,230,200,0.3);
+      background:rgba(180,230,200,0.1);
+      color:rgba(180,230,200,0.85); font-size:13px;
+      letter-spacing:0.12em; text-transform:uppercase;
+      cursor:pointer; transition:all 0.2s; font-family:'Georgia',serif;
+    }
+    .submit-btn:hover { background:rgba(180,230,200,0.18); }
+    .submit-btn:disabled { opacity:0.5; cursor:not-allowed; }
+
+    .footer-note { text-align:center; font-size:12px; color:rgba(255,255,255,0.25); }
+    .footer-note a { color:rgba(180,230,200,0.5); text-decoration:none; }
+    .footer-note a:hover { color:rgba(180,230,200,0.8); }
+
+    .state-message { text-align:center; font-size:14px; color:rgba(255,255,255,0.5); line-height:1.7; padding:12px 0; }
+  </style>
+</head>
+<body>
+  <div class="slideshow" id="slideshow"></div>
+  <div class="veil"></div>
+
+  <div class="panel">
+    <div class="glass" id="glassPanel">
+      <div class="wordmark">
+        <span class="wordmark-main" data-brand="name">Deeper Mindfulness</span>
+        <span class="wordmark-sub" id="wordmarkSub">Loading…</span>
+      </div>
+      <div class="state-message" id="loadingMessage">Just a moment…</div>
+    </div>
+  </div>
+
+  <script>
+    const token = location.pathname.split('/').filter(Boolean).pop();
+
+    const slides = [
+      'https://images.unsplash.com/photo-1505118380757-91f5f5632de0?w=1600&q=80',
+      'https://images.unsplash.com/photo-1433086966358-54859d0ed716?w=1600&q=80',
+      'https://images.unsplash.com/photo-1501854140801-50d01698950b?w=1600&q=80',
+      'https://images.unsplash.com/photo-1448375240586-882707db888b?w=1600&q=80',
+      'https://images.unsplash.com/photo-1470770841072-f978cf4d019e?w=1600&q=80',
+    ];
+    const ss = document.getElementById('slideshow');
+    const slideEls = slides.map((url, i) => {
+      const d = document.createElement('div');
+      d.className = 'slide' + (i === 0 ? ' active' : '');
+      d.style.backgroundImage = `url('${url}')`;
+      ss.appendChild(d); return d;
+    });
+    let cur = 0;
+    setInterval(() => {
+      slideEls[cur].classList.remove('active');
+      cur = (cur + 1) % slideEls.length;
+      slideEls[cur].classList.add('active');
+    }, 9000);
+
+    function renderError(title, message, showLoginLink) {
+      document.getElementById('wordmarkSub').textContent = title;
+      document.getElementById('loadingMessage').outerHTML = `
+        <div class="state-message">${message}</div>
+        ${showLoginLink ? '<div class="footer-note">Already have an account? <a href="/login">Sign in</a></div>' : '<div class="footer-note"><a href="/register">Register as a new Explorer instead</a></div>'}
+      `;
+    }
+
+    function randomPassword() {
+      return Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6).toUpperCase();
+    }
+
+    function renderForm(data) {
+      document.getElementById('wordmarkSub').textContent = `Welcome, ${data.name}`;
+      document.getElementById('loadingMessage').outerHTML = `
+        <span class="wordmark-desc" style="display:block;text-align:center;margin-top:-8px">Two weeks of full Member access, free — starting the moment you begin.</span>
+
+        <div class="field">
+          <label>Name</label>
+          <input type="text" id="joinName" value="${data.name.replace(/"/g,'&quot;')}"/>
+        </div>
+        <div class="field">
+          <label>Email</label>
+          <input type="email" id="joinEmail" value="${data.email.replace(/"/g,'&quot;')}" readonly/>
+        </div>
+        <div class="field">
+          <label>Choose a password</label>
+          <input type="text" id="joinPassword" placeholder="At least 8 characters" autocomplete="new-password"/>
+          <a class="generate-link" onclick="fillGeneratedPassword()">Generate one for me</a>
+        </div>
+
+        <div class="trial-note">Your 2-week trial starts as soon as you click below — not before.</div>
+        <div class="error" id="joinError"></div>
+        <button class="submit-btn" id="joinBtn" onclick="claim()">Start my free trial</button>
+        <div class="footer-note">Already have an account? <a href="/login">Sign in</a></div>
+      `;
+      document.getElementById('joinPassword').focus();
+    }
+
+    function fillGeneratedPassword() {
+      const pw = randomPassword();
+      const field = document.getElementById('joinPassword');
+      field.type = 'text';
+      field.value = pw;
+    }
+
+    async function claim() {
+      const name     = document.getElementById('joinName').value.trim();
+      const password = document.getElementById('joinPassword').value;
+      const err      = document.getElementById('joinError');
+      const btn      = document.getElementById('joinBtn');
+
+      if (!name) { err.textContent = 'Please enter your name.'; return; }
+      if (!password || password.length < 8) { err.textContent = 'Password must be at least 8 characters.'; return; }
+
+      btn.disabled = true; btn.textContent = 'Starting your trial…'; err.textContent = '';
+
+      try {
+        const res  = await fetch(`/api/invite/${token}/claim`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, password })
+        });
+        const data = await res.json();
+        if (data.redirect) {
+          window.location.href = data.redirect;
+        } else {
+          err.textContent = data.error || 'Something went wrong.';
+          btn.disabled = false; btn.textContent = 'Start my free trial';
+        }
+      } catch(e) {
+        err.textContent = 'Network error — please try again.';
+        btn.disabled = false; btn.textContent = 'Start my free trial';
+      }
+    }
+
+    (async function init() {
+      if (!token) { renderError('Link not found', "This link doesn't look right — please use the exact link from your email.", true); return; }
+      try {
+        const res = await fetch(`/api/invite/${token}`);
+        if (res.status === 410) { renderError('Already used', "This invite link has already been used. If that was you, just sign in below.", true); return; }
+        if (!res.ok) { renderError('Link not found', "This invite link isn't valid — it may have been mistyped. Please use the exact link from your email.", true); return; }
+        const data = await res.json();
+        renderForm(data);
+      } catch(e) {
+        renderError('Something went wrong', 'Please try again in a moment.', true);
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,6 +1,7 @@
 const initSqlJs = require('sql.js');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const DB_PATH = path.join(__dirname, 'db', 'perbot.db');
 let db = null;
@@ -566,6 +567,13 @@ async function getDb() {
     // email or SMS on — see the PATCH /api/account validation in server.js.
     // motd_hour is interpreted IN THIS TIMEZONE once it's set, not UTC.
     "ALTER TABLE users ADD COLUMN timezone TEXT",
+    // Magic-link invites (Per Bot 6) — lets a newsletter-only contact click
+    // one personalised link and land as a real Member, trial clock starting
+    // at the moment THEY click, not when the newsletter was sent or the
+    // token was generated. invite_token_used_at guards against the same
+    // link being replayed later to restart the trial.
+    "ALTER TABLE users ADD COLUMN invite_token TEXT",
+    "ALTER TABLE users ADD COLUMN invite_token_used_at TEXT",
     // Tracks which approved message is "today's" active message — see
     // sendScheduledMotd() in server.js. Stays 'approved' (not 'sent') while
     // active so different users can still receive it across their own
@@ -578,6 +586,10 @@ async function getDb() {
   migrations.forEach(sql => {
     try { db.run(sql); } catch(e) { /* column already exists — ignore */ }
   });
+
+  // Must run after migrations, not with the other CREATE INDEX statements
+  // above — invite_token doesn't exist until the migration above adds it.
+  db.run(`CREATE INDEX IF NOT EXISTS idx_users_invite_token ON users(invite_token)`);
 
   // ── Backfill: existing notification-opted-in users get a default timezone ──
   // Timezone is now required for anyone receiving MOTD email/SMS (see
@@ -1318,6 +1330,14 @@ function updateClientDetails(id, name, email, facilitatorId) {
     [name, email||null, facilitatorId||null, id]);
   save();
 }
+// Name-only update — updateClientDetails above sets email and facilitator_id
+// unconditionally from whatever it's passed, including null, which would
+// silently wipe them if you only meant to change the name. Used by the
+// invite-claim flow, where only the name might need correcting.
+function updateUserName(id, name) {
+  getDbSync().run('UPDATE users SET name=? WHERE id=?', [name, id]);
+  save();
+}
 function deleteClient(id) {
   getDbSync().run('DELETE FROM users WHERE id=?', [id]);
   save();
@@ -1360,6 +1380,28 @@ function createMailingListContact(id, name, email) {
      VALUES (?,?,?,NULL,NULL,'',0,0, 0,0,0, 0,0,0,1,0, 'Existing mailing list — imported, not registered via Per Bot')`,
     [id, name, email.toLowerCase()]
   );
+  save();
+}
+
+// ── Magic-link invites ──
+// One personalised claim link per newsletter-only contact. The token itself
+// never expires on a timer — Per's explicit requirement is that clicking it
+// two weeks late should still give a full, fresh trial, so the only thing
+// that invalidates a token is actually using it (invite_token_used_at).
+function ensureInviteToken(userId) {
+  const user = getUser(userId);
+  if (!user) return null;
+  if (user.invite_token) return user.invite_token;
+  const token = crypto.randomBytes(24).toString('base64url');
+  getDbSync().run('UPDATE users SET invite_token=? WHERE id=?', [token, userId]);
+  save();
+  return token;
+}
+function getUserByInviteToken(token) {
+  return queryOne('SELECT * FROM users WHERE invite_token=?', [token]);
+}
+function markInviteTokenUsed(userId) {
+  getDbSync().run("UPDATE users SET invite_token_used_at=datetime('now') WHERE id=?", [userId]);
   save();
 }
 
@@ -1910,15 +1952,16 @@ const NEWSLETTER_AUDIENCE_CLAUSES = {
 function getNewsletterRecipients(segments) {
   const base = `pref_email_news=1 AND email IS NOT NULL AND archived=0`;
   const list = Array.isArray(segments) ? segments : String(segments || 'all').split(',').map(s => s.trim()).filter(Boolean);
+  const cols = `id, name, email, (password_hash IS NOT NULL) as has_login`;
 
   if (!list.length || list.includes('all')) {
-    return queryAll(`SELECT id, name, email FROM users WHERE ${base}`);
+    return queryAll(`SELECT ${cols} FROM users WHERE ${base}`);
   }
 
   const clauses = list.map(s => NEWSLETTER_AUDIENCE_CLAUSES[s]).filter(Boolean);
   if (!clauses.length) return []; // no recognised segment — safer to send nobody than everybody
 
-  return queryAll(`SELECT id, name, email FROM users WHERE ${base} AND (${clauses.join(' OR ')})`);
+  return queryAll(`SELECT ${cols} FROM users WHERE ${base} AND (${clauses.join(' OR ')})`);
 }
 
 // Get users who haven't been active in the last N days (for reminder emails).
@@ -2285,7 +2328,7 @@ module.exports = {
   createClient, getClient, getClientByEmail, getAllClients, getAllClientsAdmin,
   // User management
   updateArc, archiveClient, updateClientPassword, updateClientEmail, updateClientProgramme,
-  updateClientDetails, deleteClient,
+  updateClientDetails, updateUserName, deleteClient,
   // Membership
   setMemberTier, setMemberExpiry, upgradeToMember, downgradeToExplorer, markAsClient, markAsSystemClient,
   // Preferences
@@ -2307,6 +2350,7 @@ module.exports = {
   createUserPlaylist, getUserPlaylists, addToUserPlaylist, removeFromUserPlaylist, deleteUserPlaylist, renameUserPlaylist,
   // Registration
   registerUser, createMailingListContact,
+  ensureInviteToken, getUserByInviteToken, markInviteTokenUsed,
   checkTrialExpiry,
   // Content visibility
   getLibraryFilesForUser, getAllLibraryFilesWithAccess, canAccessFile, getFacilitatorResources,
