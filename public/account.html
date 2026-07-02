@@ -159,7 +159,7 @@
   </a>
 
   <div>
-    <div class="wordmark">Deeper Mindfulness</div>
+    <div class="wordmark" data-brand="name">Deeper Mindfulness</div>
     <div class="page-title">My account</div>
     <div class="page-sub" id="pageSubName">Loading…</div>
   </div>
@@ -462,7 +462,14 @@
       ]);
       if (accountRes.status === 401) { window.location.href = '/login'; return; }
       account = await accountRes.json();
-      try { const cfg = await configRes.json(); paymentsEnabled = cfg.paymentsEnabled !== false; } catch(e) { /* keep default */ }
+      try {
+        const cfg = await configRes.json();
+        paymentsEnabled = cfg.paymentsEnabled !== false;
+        if (cfg.brandName) {
+          document.querySelectorAll('[data-brand="name"]').forEach(el => el.textContent = cfg.brandName);
+          document.title = document.title.split('Deeper Mindfulness').join(cfg.brandName);
+        }
+      } catch(e) { /* keep defaults already in the HTML */ }
       populate(account);
     } catch(e) {
       showMsg('profileMsg', 'Could not load account. Please refresh.', 'err');

@@ -98,7 +98,7 @@
   </a>
 
   <div>
-    <div class="page-wordmark">Deeper Mindfulness</div>
+    <div class="page-wordmark" data-brand="name">Deeper Mindfulness</div>
     <div class="page-title">Membership</div>
     <div class="page-desc">Full access to the practice library, daily messages from Per, and everything that helps the practices land and last.</div>
   </div>
@@ -154,13 +154,22 @@
   let selectedBilling = 'monthly';
   let account = null;
   let paymentsEnabled = true; // safe default until /api/config responds
+  let brandName = 'Deeper Mindfulness';
   let checkoutInFlight = false;
 
   // ── Load account ──
   async function init() {
     try {
       const configRes = await fetch('/api/config');
-      try { const cfg = await configRes.json(); paymentsEnabled = cfg.paymentsEnabled !== false; } catch(e) { /* keep default */ }
+      try {
+        const cfg = await configRes.json();
+        paymentsEnabled = cfg.paymentsEnabled !== false;
+        if (cfg.brandName) {
+          brandName = cfg.brandName;
+          document.querySelectorAll('[data-brand="name"]').forEach(el => el.textContent = cfg.brandName);
+          document.title = document.title.split('Deeper Mindfulness').join(cfg.brandName);
+        }
+      } catch(e) { /* keep defaults already in the HTML */ }
 
       const res = await fetch('/api/account');
       if (res.status === 401) {
@@ -239,7 +248,7 @@
 
       <div class="plan-card featured" id="planCard">
         <div class="plan-header">
-          <div class="plan-name">Deeper Mindfulness · Member</div>
+          <div class="plan-name">${brandName} · Member</div>
           <div class="plan-price-row">
             <div class="plan-price" id="planPrice">£5.99</div>
             <div class="plan-period" id="planPeriod">per month</div>

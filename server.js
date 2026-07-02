@@ -547,6 +547,12 @@ app.get('/login',    (req, res) => res.sendFile(path.join(__dirname, 'public', '
 app.get('/register', (req, res) => res.sendFile(path.join(__dirname, 'public', 'register.html')));
 app.get('/register/',(req, res) => res.sendFile(path.join(__dirname, 'public', 'register.html')));
 app.get('/change-password', (req, res) => res.sendFile(path.join(__dirname, 'public', 'change-password.html')));
+// Shared client-side brand injection — see public/brand-inject.js. This is the
+// first external asset file in the app (everything else is inlined per page);
+// served the same explicit-route way as every other static file here rather
+// than adding an express.static() mount, so it doesn't change how the rest
+// of the app serves files.
+app.get('/brand-inject.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'brand-inject.js')));
 app.get('/',                (req, res) => res.redirect('/login'));
 
 function roleRouter(allowedRoles, file) {
@@ -2697,6 +2703,7 @@ app.get('/api/config', (req, res) => {
       logoUrl: cfg.logo_url,
       paymentsEnabled: !!cfg.payments_enabled,
       currency: cfg.currency,
+      legalEntityName: cfg.legal_entity_name,
     });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });

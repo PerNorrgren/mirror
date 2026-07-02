@@ -4,6 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Legal — Deeper Mindfulness</title>
+  <script src="/brand-inject.js"></script>
   <style>
     *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
     html, body { width:100%; min-height:100%; font-family:'Georgia',serif; background:#0a0f0d; color:rgba(255,255,255,0.78); }
@@ -81,7 +82,7 @@
 <div class="layout">
 
   <div class="sidebar">
-    <div class="sidebar-logo">Deeper Mindfulness</div>
+    <div class="sidebar-logo" data-brand="name">Deeper Mindfulness</div>
     <div class="sidebar-title">Legal</div>
     <div id="sidebarLinks">
       <div class="sidebar-link" style="color:rgba(255,255,255,0.2);font-size:12px;padding:6px 20px">Loading…</div>
@@ -179,8 +180,9 @@
       '<div style="padding:6px 20px;font-size:12px;color:rgba(255,255,255,0.2)">No documents yet.</div>';
   }
 
-  function renderIndex() {
-    document.title = 'Legal — Deeper Mindfulness';
+  async function renderIndex() {
+    const cfg = await window.brandReady;
+    document.title = `Legal — ${cfg.brandName || 'Deeper Mindfulness'}`;
     const main = document.getElementById('main');
     if (!allDocs.length) {
       main.innerHTML = '<p style="color:rgba(255,255,255,0.3);padding:40px 0">No documents published yet.</p>';
@@ -188,9 +190,9 @@
     }
     main.innerHTML = `
       <div style="margin-bottom:28px">
-        <div style="font-size:10px;letter-spacing:0.2em;text-transform:uppercase;color:rgba(255,255,255,0.25);margin-bottom:8px">Deeper Mindfulness</div>
+        <div style="font-size:10px;letter-spacing:0.2em;text-transform:uppercase;color:rgba(255,255,255,0.25);margin-bottom:8px">${cfg.brandName || 'Deeper Mindfulness'}</div>
         <div style="font-size:26px;color:rgba(255,255,255,0.85);font-weight:normal;margin-bottom:6px">Legal documents</div>
-        <div style="font-size:13px;color:rgba(255,255,255,0.3)">Per Norrgren trading as Deeper Mindfulness · United Kingdom</div>
+        <div style="font-size:13px;color:rgba(255,255,255,0.3)">${cfg.legalEntityName || 'Per Norrgren trading as Deeper Mindfulness'} · United Kingdom</div>
       </div>
       <div class="doc-index">
         ${allDocs.map(d => `
@@ -217,7 +219,8 @@
         return;
       }
       const doc = await res.json();
-      document.title = `${doc.title} — Deeper Mindfulness`;
+      const cfg = await window.brandReady;
+      document.title = `${doc.title} — ${cfg.brandName || 'Deeper Mindfulness'}`;
 
       const alreadyAccepted = userLoggedIn && userConsents[doc.slug + '@' + doc.version];
 
@@ -227,7 +230,7 @@
             <a href="/legal">Legal</a> › ${doc.title}
           </div>
           <div class="doc-title">${doc.title}</div>
-          <div class="doc-meta">Version ${doc.version} · ${doc.published_at ? fmtDate(doc.published_at) : ''} · Per Norrgren trading as Deeper Mindfulness</div>
+          <div class="doc-meta">Version ${doc.version} · ${doc.published_at ? fmtDate(doc.published_at) : ''} · ${cfg.legalEntityName || 'Per Norrgren trading as Deeper Mindfulness'}</div>
           <div class="doc-version-history" style="margin-top:8px">
             <a class="doc-version-link" href="/legal/${doc.slug}/history" onclick="loadHistory('${doc.slug}');return false;">View version history</a>
           </div>

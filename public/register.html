@@ -4,6 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Deeper Mindfulness — Register</title>
+  <script src="/brand-inject.js"></script>
   <style>
     *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
     html, body { width:100%; height:100%; font-family:'Georgia',serif; background:#0a0f0d; display:flex; align-items:center; justify-content:center; }
@@ -67,7 +68,7 @@
   <div class="panel">
     <div class="glass">
       <div class="wordmark">
-        <span class="wordmark-main">Deeper Mindfulness</span>
+        <span class="wordmark-main" data-brand="name">Deeper Mindfulness</span>
         <span class="wordmark-sub">Begin your exploration</span>
         <span class="wordmark-desc">Join as an Explorer. Your practice space, your pace.</span>
       </div>
@@ -93,7 +94,7 @@
 
       <label class="consent">
         <input type="checkbox" id="consent"/>
-        <span class="consent-text">I agree to my name and email being stored by Deeper Mindfulness. I may receive occasional updates from Per — no spam, no third parties.</span>
+        <span class="consent-text">I agree to my name and email being stored by <span data-brand="name">Deeper Mindfulness</span>. I may receive occasional updates from Per — no spam, no third parties.</span>
       </label>
 
       <div class="error" id="error"></div>
