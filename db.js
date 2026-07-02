@@ -514,6 +514,10 @@ async function getDb() {
     "ALTER TABLE users ADD COLUMN motd_days TEXT DEFAULT '0,1,2,3,4,5,6'",
     "ALTER TABLE users ADD COLUMN motd_hour INTEGER DEFAULT 9",
     "ALTER TABLE users ADD COLUMN motd_last_sent_date TEXT",
+    // Optional in general, but becomes required the moment a user wants MOTD
+    // email or SMS on — see the PATCH /api/account validation in server.js.
+    // motd_hour is interpreted IN THIS TIMEZONE once it's set, not UTC.
+    "ALTER TABLE users ADD COLUMN timezone TEXT",
     // Tracks which approved message is "today's" active message — see
     // sendScheduledMotd() in server.js. Stays 'approved' (not 'sent') while
     // active so different users can still receive it across their own
@@ -526,6 +530,19 @@ async function getDb() {
   migrations.forEach(sql => {
     try { db.run(sql); } catch(e) { /* column already exists — ignore */ }
   });
+
+  // ── Backfill: existing notification-opted-in users get a default timezone ──
+  // Timezone is now required for anyone receiving MOTD email/SMS (see
+  // PATCH /api/account), but users who opted in before this column existed
+  // would otherwise silently stop receiving anything the moment this deploys
+  // — the scheduled sender only considers users with a timezone set. Rather
+  // than let that happen invisibly, default them to Europe/London (Per's own
+  // base) so delivery continues exactly as before until/unless they change
+  // it themselves in My Account. New sign-ups get no default — they're
+  // required to actively choose a timezone before turning notifications on.
+  try {
+    db.run(`UPDATE users SET timezone='Europe/London' WHERE timezone IS NULL AND (pref_email_motd=1 OR pref_sms=1)`);
+  } catch(e) { /* ignore */ }
 
   // ── clients → users table migration ──
   // If the old 'clients' table still exists and 'users' does not yet have any rows
@@ -1352,7 +1369,7 @@ function markAsSystemClient(id) {
 
 // ── User preferences (My Account) ──
 function updateUserPreferences(userId, prefs) {
-  const allowed = ['pref_email_motd','pref_email_reminders','pref_email_renewal','pref_email_news','pref_sms','phone','language','motd_days','motd_hour'];
+  const allowed = ['pref_email_motd','pref_email_reminders','pref_email_renewal','pref_email_news','pref_sms','phone','language','motd_days','motd_hour','timezone'];
   const sets = Object.keys(prefs).filter(k => allowed.includes(k)).map(k => `${k}=?`).join(', ');
   if (!sets) return;
   getDbSync().run(`UPDATE users SET ${sets} WHERE id=?`,
@@ -1757,20 +1774,17 @@ function activateMotd(id, dateStr) {
   getDbSync().run(`UPDATE messages_of_the_day SET activated_date=? WHERE id=?`, [dateStr, id]);
   save();
 }
-// Recipients due right now: opted into email and/or SMS, whose motd_days
-// includes today's UTC day-of-week, whose motd_hour matches the current UTC
-// hour, and who haven't already received today's message (handles the cron
-// firing more than once inside the same hour). Day-substring match is safe
-// here since day values are always single digits 0-6.
-function getScheduledMotdRecipients(dayOfWeek, hour, todayStr) {
+// Candidates for the scheduled MOTD sender: opted into email and/or SMS,
+// and — since timezone is required for notifications — has one set. Returns
+// everyone eligible; the actual day/hour match happens in JS (server.js,
+// sendScheduledMotd) because SQLite has no IANA timezone support, so "is it
+// this user's chosen hour right now" can only be computed per-row via
+// Intl.DateTimeFormat, not filtered in SQL.
+function getMotdNotificationCandidates() {
   return queryAll(
-    `SELECT id, name, email, phone, pref_email_motd, pref_sms FROM users
-     WHERE archived=0
-       AND (pref_email_motd=1 OR pref_sms=1)
-       AND motd_days LIKE '%' || ? || '%'
-       AND motd_hour = ?
-       AND (motd_last_sent_date IS NULL OR motd_last_sent_date != ?)`,
-    [String(dayOfWeek), hour, todayStr]
+    `SELECT id, name, email, phone, pref_email_motd, pref_sms, timezone, motd_days, motd_hour, motd_last_sent_date
+     FROM users
+     WHERE archived=0 AND (pref_email_motd=1 OR pref_sms=1) AND timezone IS NOT NULL AND timezone != ''`
   );
 }
 function markMotdSentForUser(userId, todayStr) {
@@ -2119,7 +2133,7 @@ module.exports = {
   // MOTD
   addMotd, getMotd, getAllMotd, approveMotd, updateMotd, deleteMotd,
   markMotdSent, countApprovedMotd, getNextMotdToSend, getMotdRecipients,
-  getActiveMotdForDate, getStaleActiveMotd, activateMotd, getScheduledMotdRecipients, markMotdSentForUser,
+  getActiveMotdForDate, getStaleActiveMotd, activateMotd, getMotdNotificationCandidates, markMotdSentForUser,
   // Reminders
   getInactiveUsers,
   markReminderSent,

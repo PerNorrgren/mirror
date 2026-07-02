@@ -2315,7 +2315,7 @@ app.get('/api/account', auth.requireAuthApi(['client']), (req, res) => {
 // Update communication preferences and profile fields
 app.patch('/api/account', auth.requireAuthApi(['client']), (req, res) => {
   try {
-    const allowed = ['pref_email_motd','pref_email_reminders','pref_email_renewal','pref_email_news','pref_sms','phone','language','motd_days','motd_hour'];
+    const allowed = ['pref_email_motd','pref_email_reminders','pref_email_renewal','pref_email_news','pref_sms','phone','language','motd_days','motd_hour','timezone'];
     const prefs = {};
     allowed.forEach(k => { if (req.body[k] !== undefined) prefs[k] = req.body[k]; });
     // Light validation — bad values here would silently break someone's schedule
@@ -2331,6 +2331,24 @@ app.patch('/api/account', auth.requireAuthApi(['client']), (req, res) => {
       if (!Number.isInteger(hour) || hour < 0 || hour > 23) return res.status(400).json({ error: 'motd_hour must be 0-23.' });
       prefs.motd_hour = hour;
     }
+    if (prefs.timezone !== undefined && prefs.timezone !== null && prefs.timezone !== '') {
+      try { new Intl.DateTimeFormat(undefined, { timeZone: prefs.timezone }); }
+      catch (e) { return res.status(400).json({ error: 'That timezone isn\'t recognised.' }); }
+    }
+    // Timezone is optional in general, but mandatory the moment notifications
+    // are on — the scheduled sender can't work out a user's local hour
+    // without one. Check the EFFECTIVE state after this patch is applied
+    // (existing value unless this request is changing it), not just what
+    // was submitted, so e.g. flipping pref_sms on without resubmitting an
+    // already-saved timezone doesn't wrongly reject.
+    const current = db.getUser(req.user.id);
+    const effEmailMotd = prefs.pref_email_motd !== undefined ? !!Number(prefs.pref_email_motd) : !!current.pref_email_motd;
+    const effSms       = prefs.pref_sms         !== undefined ? !!Number(prefs.pref_sms)         : !!current.pref_sms;
+    const effTimezone  = prefs.timezone !== undefined ? prefs.timezone : current.timezone;
+    if ((effEmailMotd || effSms) && !effTimezone) {
+      return res.status(400).json({ error: 'Please set a timezone before turning on notifications.' });
+    }
+
     if (Object.keys(prefs).length) db.updateUserPreferences(req.user.id, prefs);
     // Name update
     if (req.body.name && req.body.name.trim()) {
@@ -2821,53 +2839,85 @@ async function sendDailyMotd() {
   return { ok: true, sent, remaining, lowStock: remaining <= 5 };
 }
 
+// ── Timezone-aware local day/hour/date for one user ── SQLite has no IANA
+// timezone support, so "is it this user's chosen hour right now" can only be
+// computed per-row in JS via Intl.DateTimeFormat, not filtered in SQL — this
+// is why sendScheduledMotd() below fetches all candidates and matches in a
+// loop rather than doing it in the query. Throws if the stored timezone
+// string is invalid (defensive — shouldn't happen, since PATCH /api/account
+// validates on the way in, but a bad row should never crash the whole
+// scheduled send for everyone else).
+function getLocalDayHourDate(timezone, nowUtc) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone, weekday: 'short', hour: 'numeric', hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(nowUtc);
+  const map = {};
+  parts.forEach(p => { map[p.type] = p.value; });
+  const weekdayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  let hour = parseInt(map.hour, 10);
+  if (hour === 24) hour = 0; // some ICU builds return "24" rather than "00" at local midnight
+  return { day: weekdayMap[map.weekday], hour, dateStr: `${map.year}-${map.month}-${map.day}` };
+}
+
 // ── MOTD send — scheduled, per-user ── This is the real automatic daily
 // driver, run hourly by cron (see cron.js). It replaces the old fixed
 // 07:00 UTC broadcast with per-user day-of-week + hour preferences
-// (motd_days / motd_hour on the user, default every day at 09:00 UTC).
+// (motd_days / motd_hour on the user, default every day at 09:00) —
+// interpreted in the user's own timezone, not UTC.
 //
 // HOW THE QUEUE ADVANCES: a message becomes "active" for a calendar date
-// (activated_date) rather than being marked 'sent' the instant everyone's
-// received it — different users are due at different hours, sometimes
-// different days, so "everyone's received it" may never happen for a
-// message that some users have opted out of on their scheduled days. The
-// message stays active for its whole UTC calendar day, then gets retired
-// (marked 'sent') the next time this function runs and finds a stale
-// activated_date — at which point the next queued message activates.
+// (activated_date, tracked in UTC) rather than being marked 'sent' the
+// instant everyone's received it — different users are due at different
+// hours, sometimes different days, so "everyone's received it" may never
+// happen for a message some users have opted out of on their scheduled
+// days. The message stays active for its whole UTC calendar day, then gets
+// retired (marked 'sent') the next time this function runs and finds a
+// stale activated_date — at which point the next queued message activates.
 // A user whose motd_days excludes today simply doesn't get today's message
 // and picks up again on their next matching day — this is the intended
 // behaviour of a day-of-week preference, not a bug.
 //
-// TIMEZONE NOTE: motd_hour is UTC. There's no per-user timezone stored yet,
-// so "09:00" means 09:00 UTC for everyone regardless of where they are —
-// worth flagging to Per as a future decision if international members
-// start asking for local-time delivery.
+// SIMPLIFICATION WORTH KNOWING ABOUT: which message is "today's" is decided
+// once, globally, by UTC date — timezone only controls WHEN within that
+// UTC-day window each person is sent it, not WHICH message they get. For
+// someone whose local day has already rolled over relative to UTC, this can
+// occasionally mean receiving what's technically still "yesterday's UTC"
+// message at their chosen local hour. Not worth solving for a message-of-
+// the-day feature — flagging it so it's a known tradeoff, not a surprise.
 async function sendScheduledMotd() {
-  const now   = new Date();
-  const today = now.toISOString().slice(0, 10);
+  const nowUtc   = new Date();
+  const todayUtc = nowUtc.toISOString().slice(0, 10);
 
-  let active = db.getActiveMotdForDate(today);
+  let active = db.getActiveMotdForDate(todayUtc);
   let activatedNewMessage = false;
 
   if (!active) {
     // Retire yesterday's (or older) active message if one was left dangling
-    const stale = db.getStaleActiveMotd(today);
+    const stale = db.getStaleActiveMotd(todayUtc);
     if (stale) db.markMotdSent(stale.id);
 
     const next = db.getNextMotdToSend();
     if (!next) return { ok: true, sent: 0, note: 'No approved messages in queue.' };
-    db.activateMotd(next.id, today);
+    db.activateMotd(next.id, todayUtc);
     active = db.getMotd(next.id);
     activatedNewMessage = true;
   }
 
-  const dueDay  = now.getUTCDay();   // 0=Sunday..6=Saturday
-  const dueHour = now.getUTCHours(); // 0-23 UTC
-  const recipients = db.getScheduledMotdRecipients(dueDay, dueHour, today);
-
+  const candidates = db.getMotdNotificationCandidates();
   const b = brand();
   let sentEmail = 0, sentSms = 0;
-  for (const user of recipients) {
+
+  for (const user of candidates) {
+    let local;
+    try { local = getLocalDayHourDate(user.timezone, nowUtc); }
+    catch (e) { console.error(`MOTD schedule: bad timezone "${user.timezone}" for user ${user.id} — skipping`); continue; }
+
+    const days = String(user.motd_days || '0,1,2,3,4,5,6').split(',').map(d => d.trim());
+    if (!days.includes(String(local.day))) continue;
+    if (Number(user.motd_hour ?? 9) !== local.hour) continue;
+    if (user.motd_last_sent_date === local.dateStr) continue; // already sent for their local day
+
     if (user.pref_email_motd && user.email) {
       await sendEmail(user.email, `From ${b.name} — a moment for today`, buildMotdHtml(active.body, b));
       sentEmail++;
@@ -2876,7 +2926,7 @@ async function sendScheduledMotd() {
       const result = await sms.sendSms(user.phone, `${b.name}: ${active.body}`);
       if (result.ok) sentSms++;
     }
-    db.markMotdSentForUser(user.id, today);
+    db.markMotdSentForUser(user.id, local.dateStr);
   }
 
   // Low-stock alert fires once, at the moment a new message gets activated —
@@ -2895,7 +2945,7 @@ async function sendScheduledMotd() {
     }
   }
 
-  return { ok: true, activeMessageId: active.id, sentEmail, sentSms, dueDay, dueHour };
+  return { ok: true, activeMessageId: active.id, sentEmail, sentSms, candidates: candidates.length };
 }
 
 // Manual/admin trigger — same logic as the cron job, for testing or one-off sends.
