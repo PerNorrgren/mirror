@@ -3305,31 +3305,34 @@ app.get('/api/admin/newsletters', auth.requireAuthApi(['admin']), (req, res) => 
   catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Accepts ?segments=explorer,member1 (comma-separated) so the compose modal
+// can show a live count as the admin ticks/unticks audience checkboxes,
+// before ever saving a draft. No query param, or 'all', means everyone.
 app.get('/api/admin/newsletters/recipient-count', auth.requireAuthApi(['admin']), (req, res) => {
-  try { res.json({ count: db.getNewsletterRecipients().length }); }
+  try { res.json({ count: db.getNewsletterRecipients(req.query.segments || 'all').length }); }
   catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/admin/newsletters', auth.requireAuthApi(['admin']), (req, res) => {
   try {
-    const { subject, body } = req.body;
+    const { subject, body, audience } = req.body;
     if (!subject || !subject.trim()) return res.status(400).json({ error: 'Subject is required.' });
     if (!body || !body.trim()) return res.status(400).json({ error: 'Body is required.' });
     const id = uuidv4();
-    db.addNewsletter(id, subject.trim(), body.trim());
+    db.addNewsletter(id, subject.trim(), body.trim(), audience);
     res.json({ id });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.patch('/api/admin/newsletters/:id', auth.requireAuthApi(['admin']), (req, res) => {
   try {
-    const { subject, body } = req.body;
+    const { subject, body, audience } = req.body;
     if (!subject || !subject.trim()) return res.status(400).json({ error: 'Subject is required.' });
     if (!body || !body.trim()) return res.status(400).json({ error: 'Body is required.' });
     const existing = db.getNewsletter(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Newsletter not found.' });
     if (existing.status !== 'draft') return res.status(400).json({ error: 'Already sent — sent newsletters cannot be edited.' });
-    db.updateNewsletter(req.params.id, subject.trim(), body.trim());
+    db.updateNewsletter(req.params.id, subject.trim(), body.trim(), audience);
     res.json({ ok: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -3343,7 +3346,8 @@ app.delete('/api/admin/newsletters/:id', auth.requireAuthApi(['admin']), (req, r
 
 // Test send — mirrors the MOTD/reminder pattern: uses whatever's currently
 // in the compose form (saved or not), sent to the admin's own email by
-// default or an override. No DB writes.
+// default or an override. No DB writes. Audience doesn't affect a test
+// send — it always goes to one address regardless of segment.
 app.post('/api/admin/newsletters/test-send', auth.requireAuthApi(['admin']), async (req, res) => {
   try {
     const { subject, body, to } = req.body;
@@ -3362,9 +3366,10 @@ app.post('/api/admin/newsletters/test-send', auth.requireAuthApi(['admin']), asy
   }
 });
 
-// The real send — broadcasts to everyone with pref_email_news=1 right now.
-// Requires the newsletter to already be saved as a draft (so there's a
-// permanent record of exactly what was sent and to how many people), then
+// The real send — broadcasts to whichever audience segment(s) this
+// newsletter was saved with (defaults to 'all' if none chosen). Requires
+// the newsletter to already be saved as a draft (so there's a permanent
+// record of exactly what was sent, to whom, and how many people), then
 // marks it 'sent' and locks it against further edits.
 app.post('/api/admin/newsletters/:id/send', auth.requireAuthApi(['admin']), async (req, res) => {
   try {
@@ -3372,7 +3377,7 @@ app.post('/api/admin/newsletters/:id/send', auth.requireAuthApi(['admin']), asyn
     if (!newsletter) return res.status(404).json({ error: 'Newsletter not found.' });
     if (newsletter.status !== 'draft') return res.status(400).json({ error: 'Already sent.' });
 
-    const recipients = db.getNewsletterRecipients();
+    const recipients = db.getNewsletterRecipients(newsletter.audience);
     const b = brand();
     const html = buildNewsletterHtml(newsletter.subject, newsletter.body, b);
 

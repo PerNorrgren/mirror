@@ -558,6 +558,10 @@ async function getDb() {
     // both; those fields never actually persisted anywhere. Real now.
     "ALTER TABLE app_config ADD COLUMN reminder_days INTEGER DEFAULT 4",
     "ALTER TABLE app_config ADD COLUMN reminder_subject TEXT DEFAULT 'Whenever you''re ready'",
+    // Newsletter audience targeting — comma-separated segment keys (see
+    // getNewsletterRecipients below), defaults to 'all' for any pre-existing
+    // rows so nothing already sent silently reinterprets who it went to.
+    "ALTER TABLE newsletters ADD COLUMN audience TEXT DEFAULT 'all'",
     // Optional in general, but becomes required the moment a user wants MOTD
     // email or SMS on — see the PATCH /api/account validation in server.js.
     // motd_hour is interpreted IN THIS TIMEZONE once it's set, not UTC.
@@ -1861,17 +1865,17 @@ function markMotdSentForUser(userId, todayStr) {
 
 // ── Newsletters ── One-off broadcasts, distinct from the MOTD queue — see
 // table comment above for why.
-function addNewsletter(id, subject, body) {
+function addNewsletter(id, subject, body, audience) {
   getDbSync().run(
-    `INSERT INTO newsletters (id,subject,body,status) VALUES (?,?,?,'draft')`,
-    [id, subject, body]
+    `INSERT INTO newsletters (id,subject,body,status,audience) VALUES (?,?,?,'draft',?)`,
+    [id, subject, body, audience || 'all']
   );
   save();
 }
 function getNewsletter(id) { return queryOne('SELECT * FROM newsletters WHERE id=?', [id]); }
 function getAllNewsletters() { return queryAll('SELECT * FROM newsletters ORDER BY created_at DESC'); }
-function updateNewsletter(id, subject, body) {
-  getDbSync().run("UPDATE newsletters SET subject=?, body=? WHERE id=? AND status='draft'", [subject, body, id]);
+function updateNewsletter(id, subject, body, audience) {
+  getDbSync().run("UPDATE newsletters SET subject=?, body=?, audience=? WHERE id=? AND status='draft'", [subject, body, audience || 'all', id]);
   save();
 }
 function deleteNewsletterDraft(id) {
@@ -1882,11 +1886,39 @@ function markNewsletterSent(id, recipientCount) {
   getDbSync().run("UPDATE newsletters SET status='sent', sent_at=datetime('now'), recipient_count=? WHERE id=?", [recipientCount, id]);
   save();
 }
-// Everyone opted into "News and updates" — independent of membership tier,
-// deliberately not filtered by member_tier the way content visibility is
-// elsewhere in the app.
-function getNewsletterRecipients() {
-  return queryAll(`SELECT id, name, email FROM users WHERE pref_email_news=1 AND email IS NOT NULL AND archived=0`);
+
+// ── Newsletter audience segments ──
+// The 377-person mailing-list import created accounts at member_tier=0 with
+// NO password (createMailingListContact — passive, no login). A real
+// Explorer is also member_tier=0, but WITH a password (self-registered, or
+// bulk-imported as a real account) — so "newsletter-only" vs "Explorer" is
+// distinguished by password_hash, not tier, even though both currently sit
+// at the same tier number. This lets Per keep his old list as pure
+// newsletter contacts today, and as people get invited to actually join
+// (given a password), they automatically graduate into the Explorer segment
+// without needing any manual re-tagging.
+const NEWSLETTER_AUDIENCE_CLAUSES = {
+  newsletter_only: `member_tier=0 AND password_hash IS NULL`,
+  explorer:        `member_tier=0 AND password_hash IS NOT NULL`,
+  member1:         `member_tier=1`,
+  member2:         `member_tier=2`,
+  member3:         `member_tier=3`,
+};
+
+// segments: array of keys from NEWSLETTER_AUDIENCE_CLAUSES, or the string/array
+// containing 'all' for everyone opted in regardless of tier or login status.
+function getNewsletterRecipients(segments) {
+  const base = `pref_email_news=1 AND email IS NOT NULL AND archived=0`;
+  const list = Array.isArray(segments) ? segments : String(segments || 'all').split(',').map(s => s.trim()).filter(Boolean);
+
+  if (!list.length || list.includes('all')) {
+    return queryAll(`SELECT id, name, email FROM users WHERE ${base}`);
+  }
+
+  const clauses = list.map(s => NEWSLETTER_AUDIENCE_CLAUSES[s]).filter(Boolean);
+  if (!clauses.length) return []; // no recognised segment — safer to send nobody than everybody
+
+  return queryAll(`SELECT id, name, email FROM users WHERE ${base} AND (${clauses.join(' OR ')})`);
 }
 
 // Get users who haven't been active in the last N days (for reminder emails).

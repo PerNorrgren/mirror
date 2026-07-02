@@ -334,6 +334,17 @@
       <label>Body</label>
       <textarea id="newsletterBody" style="min-height:220px" placeholder="Write it as it will appear in the email. Plain text — line breaks are kept."></textarea>
     </div>
+    <div style="margin-top:14px">
+      <label>Who receives this</label>
+      <div class="day-picker" id="newsletterAudiencePicker">
+        <button type="button" class="day-chip" data-seg="newsletter_only" onclick="toggleAudienceSeg(this)">Newsletter-only</button>
+        <button type="button" class="day-chip" data-seg="explorer" onclick="toggleAudienceSeg(this)">Explorer</button>
+        <button type="button" class="day-chip" data-seg="member1" onclick="toggleAudienceSeg(this)">Member 1</button>
+        <button type="button" class="day-chip" data-seg="member2" onclick="toggleAudienceSeg(this)">Member 2</button>
+        <button type="button" class="day-chip" data-seg="member3" onclick="toggleAudienceSeg(this)">Member 3</button>
+      </div>
+      <div class="modal-note" style="margin-top:6px" id="newsletterAudienceCount">Loading recipient count…</div>
+    </div>
     <div class="modal-err" id="newsletterErr"></div>
     <div class="test-send-row">
       <input type="email" id="newsletterTestTo" placeholder="Defaults to your own email — override to test another address"/>
@@ -688,11 +699,17 @@
   // Newsletters
   // ════════════════════════════════════
   let newslettersData = [];
+  const AUDIENCE_LABELS = { newsletter_only: 'Newsletter-only', explorer: 'Explorer', member1: 'Member 1', member2: 'Member 2', member3: 'Member 3' };
 
   async function loadNewsletters() {
     const res = await fetch('/api/admin/newsletters');
     newslettersData = await res.json();
     renderNewsletterList();
+  }
+
+  function audienceSummary(audience) {
+    if (!audience || audience === 'all') return 'Everyone';
+    return audience.split(',').map(s => AUDIENCE_LABELS[s] || s).join(', ');
   }
 
   function renderNewsletterList() {
@@ -705,7 +722,10 @@
           ${escHtml(n.subject)}
           <span class="badge ${n.status === 'sent' ? '' : 'badge-draft'}" style="margin-left:6px">${n.status}</span>
         </div>
-        <div class="doc-consent">${n.status === 'sent' ? `${n.recipient_count || 0} recipients · ${fmtDate(n.sent_at)}` : `Created ${fmtDate(n.created_at)}`}</div>
+        <div class="doc-consent">
+          ${n.status === 'sent' ? `${n.recipient_count || 0} recipients · ${fmtDate(n.sent_at)}` : `Created ${fmtDate(n.created_at)}`}
+          · ${audienceSummary(n.audience)}
+        </div>
         <div class="doc-actions">
           ${n.status === 'draft' ? `
             <button class="btn sm" onclick="editNewsletter('${n.id}')">Edit</button>
@@ -719,6 +739,37 @@
     `).join('');
   }
 
+  function getSelectedAudience() {
+    const active = Array.from(document.querySelectorAll('#newsletterAudiencePicker .day-chip.active')).map(c => c.dataset.seg);
+    return active.length ? active.join(',') : 'all';
+  }
+
+  function setSelectedAudience(audience) {
+    const segs = (!audience || audience === 'all') ? [] : audience.split(',');
+    document.querySelectorAll('#newsletterAudiencePicker .day-chip').forEach(chip => {
+      chip.classList.toggle('active', segs.includes(chip.dataset.seg));
+    });
+  }
+
+  async function refreshAudienceCount() {
+    const el = document.getElementById('newsletterAudienceCount');
+    const audience = getSelectedAudience();
+    el.textContent = 'Checking…';
+    try {
+      const res  = await fetch(`/api/admin/newsletters/recipient-count?segments=${encodeURIComponent(audience)}`);
+      const data = await res.json();
+      const who  = audience === 'all' ? 'everyone opted into News and updates' : audienceSummary(audience);
+      el.textContent = `${data.count} recipient${data.count === 1 ? '' : 's'} — ${who}`;
+    } catch(e) {
+      el.textContent = 'Could not check recipient count.';
+    }
+  }
+
+  function toggleAudienceSeg(chip) {
+    chip.classList.toggle('active');
+    refreshAudienceCount();
+  }
+
   function openNewsletterModal() {
     document.getElementById('newsletterModalTitle').textContent = 'Write a newsletter';
     document.getElementById('newsletterEditId').value = '';
@@ -727,6 +778,8 @@
     document.getElementById('newsletterErr').textContent = '';
     document.getElementById('newsletterTestTo').value = '';
     document.getElementById('newsletterTestFeedback').textContent = '';
+    setSelectedAudience('all'); // no chips active = everyone, matches backend default
+    refreshAudienceCount();
     openModal('newsletterModal');
   }
 
@@ -740,28 +793,31 @@
     document.getElementById('newsletterErr').textContent = '';
     document.getElementById('newsletterTestTo').value = '';
     document.getElementById('newsletterTestFeedback').textContent = '';
+    setSelectedAudience(n.audience);
+    refreshAudienceCount();
     openModal('newsletterModal');
   }
 
   function viewSentNewsletter(id) {
     const n = newslettersData.find(x => x.id === id);
     if (!n) return;
-    alert(`${n.subject}\n\n${n.body}`);
+    alert(`${n.subject}\nSent to: ${audienceSummary(n.audience)}\n\n${n.body}`);
   }
 
   async function saveNewsletter() {
-    const id      = document.getElementById('newsletterEditId').value;
-    const subject = document.getElementById('newsletterSubject').value.trim();
-    const body    = document.getElementById('newsletterBody').value.trim();
-    const err     = document.getElementById('newsletterErr');
+    const id       = document.getElementById('newsletterEditId').value;
+    const subject  = document.getElementById('newsletterSubject').value.trim();
+    const body     = document.getElementById('newsletterBody').value.trim();
+    const audience = getSelectedAudience();
+    const err      = document.getElementById('newsletterErr');
     if (!subject) { err.textContent = 'Please write a subject.'; return; }
     if (!body)    { err.textContent = 'Please write the body.'; return; }
 
     let res;
     if (id) {
-      res = await fetch(`/api/admin/newsletters/${id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ subject, body }) });
+      res = await fetch(`/api/admin/newsletters/${id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ subject, body, audience }) });
     } else {
-      res = await fetch('/api/admin/newsletters', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ subject, body }) });
+      res = await fetch('/api/admin/newsletters', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ subject, body, audience }) });
     }
     const data = await res.json();
     if (data.id || data.ok) { closeModal('newsletterModal'); loadNewsletters(); }
@@ -800,12 +856,12 @@
     const n = newslettersData.find(x => x.id === id);
     if (!n) return;
 
-    let countMsg = 'everyone opted into News and updates';
+    let countMsg = audienceSummary(n.audience);
     try {
-      const cRes = await fetch('/api/admin/newsletters/recipient-count');
+      const cRes = await fetch(`/api/admin/newsletters/recipient-count?segments=${encodeURIComponent(n.audience || 'all')}`);
       const cData = await cRes.json();
-      if (typeof cData.count === 'number') countMsg = `${cData.count} recipient${cData.count === 1 ? '' : 's'}`;
-    } catch(e) { /* fall back to generic wording */ }
+      if (typeof cData.count === 'number') countMsg = `${cData.count} recipient${cData.count === 1 ? '' : 's'} (${audienceSummary(n.audience)})`;
+    } catch(e) { /* fall back to audience label alone */ }
 
     if (!confirm(`Send "${n.subject}" now to ${countMsg}? This cannot be undone.`)) return;
 
