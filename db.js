@@ -465,6 +465,29 @@ async function getDb() {
   )`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_legal_slug_version ON legal_documents(slug, version DESC)`);
 
+  // ── Legal document translations — on-demand, not auto-generated ──
+  // Unlike the email-template auto-translate cache, these are never served
+  // silently: a translation only exists here because someone explicitly
+  // requested one via the admin panel, and it stays status='draft' — visible
+  // only to admin — until Per has actually read and confirmed it. One row
+  // per (document_id, language); re-requesting overwrites the existing draft
+  // rather than erroring, so asking again after an edit to the English
+  // source is just "generate again, not additive."
+  db.run(`CREATE TABLE IF NOT EXISTS legal_translations (
+    id TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    language TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    status TEXT DEFAULT 'draft',
+    requested_note TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    published_at TEXT,
+    UNIQUE(document_id, language),
+    FOREIGN KEY (document_id) REFERENCES legal_documents(id)
+  )`);
+
   // ── User consent records ──
   db.run(`CREATE TABLE IF NOT EXISTS user_legal_consents (
     id TEXT PRIMARY KEY,
@@ -1922,6 +1945,14 @@ function getLegalDocument(slug) {
   );
 }
 
+// Fetch one specific document version row by its own id — used by the
+// translation endpoints, which operate on "this exact version", not
+// necessarily the currently-published one (Per may want to translate a
+// draft before publishing it).
+function getLegalDocumentById(id) {
+  return queryOne('SELECT * FROM legal_documents WHERE id=?', [id]);
+}
+
 function getLegalDocumentVersion(slug, version) {
   return queryOne('SELECT * FROM legal_documents WHERE slug=? AND version=?', [slug, version]);
 }
@@ -2005,6 +2036,58 @@ function regenerateLegalDocumentsFromConfig(generateId) {
 function deleteLegalDocumentDraft(id) {
   db.run(`DELETE FROM legal_documents WHERE id=? AND published=0`, [id]);
   save();
+}
+
+// ── Legal document translations (on-demand, admin-reviewed) ──
+function addLegalTranslation(id, documentId, slug, language, title, content, requestedNote) {
+  getDbSync().run(
+    `INSERT INTO legal_translations (id,document_id,slug,language,title,content,status,requested_note)
+     VALUES (?,?,?,?,?,?,'draft',?)
+     ON CONFLICT(document_id,language) DO UPDATE SET
+       title=excluded.title, content=excluded.content, status='draft',
+       published_at=NULL, requested_note=excluded.requested_note, created_at=datetime('now')`,
+    [id, documentId, slug, language, title, content, requestedNote || null]
+  );
+  save();
+  return getLegalTranslation(documentId, language);
+}
+function getLegalTranslation(documentId, language) {
+  return queryOne('SELECT * FROM legal_translations WHERE document_id=? AND language=?', [documentId, language]);
+}
+function getLegalTranslationById(id) {
+  return queryOne('SELECT * FROM legal_translations WHERE id=?', [id]);
+}
+function getLegalTranslationsForDoc(documentId) {
+  return queryAll('SELECT * FROM legal_translations WHERE document_id=? ORDER BY language ASC', [documentId]);
+}
+function updateLegalTranslation(id, title, content) {
+  getDbSync().run('UPDATE legal_translations SET title=?, content=? WHERE id=?', [title, content, id]);
+  save();
+}
+function publishLegalTranslation(id) {
+  getDbSync().run("UPDATE legal_translations SET status='published', published_at=datetime('now') WHERE id=?", [id]);
+  save();
+}
+function unpublishLegalTranslation(id) {
+  getDbSync().run("UPDATE legal_translations SET status='draft', published_at=NULL WHERE id=?", [id]);
+  save();
+}
+function deleteLegalTranslation(id) {
+  getDbSync().run('DELETE FROM legal_translations WHERE id=?', [id]);
+  save();
+}
+// Public consumption — the published translation for whichever version of
+// this slug is currently live. Returns null if no one's ever requested this
+// language, or the translation exists but hasn't been confirmed/published
+// yet — callers should fall back to the English original in that case.
+function getPublishedLegalTranslation(slug, language) {
+  return queryOne(
+    `SELECT lt.* FROM legal_translations lt
+     JOIN legal_documents ld ON lt.document_id = ld.id
+     WHERE ld.slug=? AND ld.published=1 AND lt.language=? AND lt.status='published'
+     ORDER BY ld.version DESC LIMIT 1`,
+    [slug, language]
+  );
 }
 
 function recordLegalConsent(id, userId, documentId, slug, version) {
@@ -2142,9 +2225,12 @@ module.exports = {
   // Stripe lookups
   getUserByStripeCustomer, getUserByStripeSubscription,
   // Legal documents
-  getLegalDocument, getLegalDocumentVersion, getLegalDocumentHistory,
+  getLegalDocument, getLegalDocumentById, getLegalDocumentVersion, getLegalDocumentHistory,
   getAllCurrentLegalDocuments, getAllLegalDocumentsAdmin,
   createLegalDocument, updateLegalDocument, publishLegalDocument, deleteLegalDocumentDraft,
+  addLegalTranslation, getLegalTranslation, getLegalTranslationById, getLegalTranslationsForDoc,
+  updateLegalTranslation, publishLegalTranslation, unpublishLegalTranslation, deleteLegalTranslation,
+  getPublishedLegalTranslation,
   // User legal consents
   recordLegalConsent, hasUserAcceptedDocument, getPendingConsentsForUser, getUserConsentHistory,
 };

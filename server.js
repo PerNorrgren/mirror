@@ -1162,6 +1162,21 @@ async function callClaude(systemPrompt, messages, maxTokens = 400) {
   return stripMarkdown(data.content[0].text);
 }
 
+// Same as callClaude but WITHOUT stripMarkdown — needed anywhere the response
+// itself is meant to contain literal Markdown syntax (e.g. translating a
+// legal document that uses # headers, **bold**, - lists). Running that
+// through stripMarkdown would silently mangle the formatting.
+async function callClaudeRaw(systemPrompt, messages, maxTokens = 400) {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-opus-4-6', max_tokens: maxTokens, system: systemPrompt, messages }),
+  });
+  const data = await response.json();
+  if (!data.content) throw new Error(JSON.stringify(data));
+  return data.content[0].text;
+}
+
 // ── /api/chat — Mare Bot architecture ──
 // Client POSTs { message, sessionId, clientId } — server calls Claude and returns reply.
 // Client then calls /api/speak with the reply text.
@@ -2518,6 +2533,82 @@ app.delete('/api/admin/legal/:id', auth.requireAuthApi(['admin']), (req, res) =>
   try {
     db.deleteLegalDocumentDraft(req.params.id);
     res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Admin: legal document translations — on-demand, admin-reviewed ──
+// Deliberately NOT auto-generated or auto-served like the email template
+// translations. Per's instruction: only translate when someone actually
+// needs it, and always present the result as an editable draft for Per to
+// read and confirm before it can go live — never silently serve an
+// AI-translated legal document to a real user.
+app.get('/api/admin/legal/:id/translations', auth.requireAuthApi(['admin']), (req, res) => {
+  try { res.json(db.getLegalTranslationsForDoc(req.params.id)); }
+  catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Generates (or regenerates) a draft translation of one legal document
+// version into the requested language. Always lands as status='draft' —
+// this endpoint never publishes anything itself.
+app.post('/api/admin/legal/:id/translate', auth.requireAuthApi(['admin']), async (req, res) => {
+  try {
+    const { language, note } = req.body;
+    if (!language) return res.status(400).json({ error: 'language is required, e.g. "es", "nl", "fr".' });
+
+    const doc = db.getLegalDocumentById(req.params.id);
+    if (!doc) return res.status(404).json({ error: 'Document not found.' });
+
+    const languageName = LANGUAGE_NAMES[language] || language;
+    const raw = await callClaudeRaw(
+      'You translate legal documents. Preserve the Markdown formatting EXACTLY — every #, ##, **, -, and blank line must stay in the same structural place, only the human-readable text changes. Preserve every email address, URL, and proper name unchanged. Respond with ONLY a JSON object: {"title":"...","content":"..."} — no preamble, no markdown code fences around the JSON itself, no commentary.',
+      [{ role: 'user', content: `Translate this legal document into ${languageName}.\n\nTITLE: ${doc.title}\n\nCONTENT:\n${doc.content}` }],
+      4000
+    );
+    let parsed;
+    try { parsed = JSON.parse(raw); }
+    catch { parsed = JSON.parse(raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim()); }
+    if (!parsed.title || !parsed.content) throw new Error('Translation response missing title or content.');
+
+    const translation = db.addLegalTranslation(uuidv4(), doc.id, doc.slug, language, parsed.title, parsed.content, note || null);
+    res.json(translation);
+  } catch(e) {
+    console.error('legal translate error:', e.message);
+    res.status(500).json({ error: 'Could not generate translation: ' + e.message });
+  }
+});
+
+app.patch('/api/admin/legal/translations/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    const { title, content, action } = req.body;
+    if (action === 'publish')   { db.publishLegalTranslation(req.params.id);   return res.json({ ok: true }); }
+    if (action === 'unpublish') { db.unpublishLegalTranslation(req.params.id); return res.json({ ok: true }); }
+    if (title !== undefined || content !== undefined) {
+      const existing = db.getLegalTranslationById(req.params.id);
+      if (!existing) return res.status(404).json({ error: 'Translation not found.' });
+      db.updateLegalTranslation(req.params.id, title !== undefined ? title : existing.title, content !== undefined ? content : existing.content);
+    }
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/admin/legal/translations/:id', auth.requireAuthApi(['admin']), (req, res) => {
+  try {
+    db.deleteLegalTranslation(req.params.id);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Public: legal document translation ── Falls back to the English original
+// if no published translation exists for this language yet — so linking to
+// a language that hasn't been requested/confirmed never breaks, it just
+// shows English until someone asks and Per confirms a translation.
+app.get('/api/legal/:slug/translation/:language', (req, res) => {
+  try {
+    const translation = db.getPublishedLegalTranslation(req.params.slug, req.params.language);
+    if (translation) return res.json({ title: translation.title, content: translation.content, language: req.params.language, translated: true });
+    const original = db.getLegalDocument(req.params.slug);
+    if (!original) return res.status(404).json({ error: 'Document not found.' });
+    res.json({ title: original.title, content: original.content, language: 'en', translated: false });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
